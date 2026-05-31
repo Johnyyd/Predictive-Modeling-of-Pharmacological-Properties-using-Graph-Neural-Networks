@@ -2,8 +2,10 @@ import streamlit as st
 import requests
 import pubchempy as pcp  # Thư viện tra cứu hóa học tự động
 from rdkit import Chem
-from rdkit.Chem import Draw
-
+from rdkit.Chem import Draw, rdMolDescriptors, AllChem, Fragments
+from collections import Counter
+import py3Dmol
+from stmol import showmol
 # Cấu hình trang Dashboard
 st.set_page_config(page_title="PharmaGraph AI", page_icon="🧬", layout="wide")
 
@@ -37,14 +39,18 @@ final_smiles = ""
 if search_name:
     with st.spinner(f"🔍 Đang tìm cấu trúc của '{search_name}' trên kho dữ liệu quốc tế PubChem..."):
         try:
-            # Gọi API của PubChem để tìm kiếm phân tử qua tên gọi
+            # Tìm kiếm bằng Tên trước
             compounds = pcp.get_compounds(search_name, 'name')
+            if not compounds:
+                # Nếu không thấy tên, tìm bằng Công thức hóa học
+                compounds = pcp.get_compounds(search_name, 'formula')
+                
             if compounds:
                 # Lấy ra chuỗi SMILES tiêu chuẩn của chất tìm thấy
                 final_smiles = compounds[0].isomeric_smiles
-                st.info(f"🧬 Đã tìm thấy cấu trúc SMILES phù hợp: `{final_smiles}`")
+                st.info(f"🧬 Đã tìm thấy cấu trúc SMILES phù hợp: `{final_smiles}` (Khớp với: {compounds[0].synonyms[0] if compounds[0].synonyms else 'Chất vô danh'})")
             else:
-                st.error(f"❌ Không tìm thấy chất nào có tên '{search_name}' trên hệ thống PubChem. Vui lòng kiểm tra lại chính tả!")
+                st.error(f"❌ Không tìm thấy chất nào khớp với Tên hoặc Công thức '{search_name}'. Vui lòng kiểm tra lại!")
         except Exception as e:
             st.error(f"Lỗi kết nối mạng khi tra cứu: {e}")
 elif selected_preset and selected_preset != "Chưa chọn...":
@@ -56,18 +62,46 @@ if final_smiles:
     if st.button("🚀 Chạy phân tích AI bằng mạng GNN"):
         with st.spinner("Mạng GNN đang bóc tách đồ thị phân tử và tính toán..."):
             try:
-                # 1. Vẽ hình cấu trúc Phân tử ngay lập tức bằng RDKit
+                # 1. Phân tích chi tiết và vẽ 3D bằng RDKit & py3Dmol
                 mol = Chem.MolFromSmiles(final_smiles)
                 if mol is not None:
-                    # Tạo ảnh 2D của phân tử
-                    img = Draw.MolToImage(mol, size=(400, 400), fitImage=True)
+                    # Trích xuất thông tin
+                    formula = rdMolDescriptors.CalcMolFormula(mol)
+                    mw = rdMolDescriptors.CalcExactMolWt(mol)
                     
-                    # Chia màn hình làm 2 cột: 1 bên hình ảnh, 1 bên số liệu AI
-                    left_col, right_col = st.columns([1, 2])
+                    atoms_list = [atom.GetSymbol() for atom in mol.GetAtoms()]
+                    atoms_count = dict(Counter(atoms_list))
+                    atoms_str = ", ".join([f"{k}: {v}" for k, v in atoms_count.items()])
+                    
+                    func_groups = []
+                    if Fragments.fr_benzene(mol) > 0: func_groups.append("Vòng Benzen")
+                    if Fragments.fr_COO(mol) > 0: func_groups.append("Carboxyl (COOH)")
+                    if Fragments.fr_Al_OH(mol) > 0 or Fragments.fr_phenol(mol) > 0: func_groups.append("Hydroxyl (OH)")
+                    if Fragments.fr_NH2(mol) > 0: func_groups.append("Amin bậc 1 (NH2)")
+                    if Fragments.fr_halogen(mol) > 0: func_groups.append("Halogen")
+                    if not func_groups: func_groups.append("Không có nhóm chức đặc biệt")
+                    
+                    # Sinh tọa độ 3D
+                    mol_3d = Chem.AddHs(mol)
+                    AllChem.EmbedMolecule(mol_3d, randomSeed=42)
+                    mol_block = Chem.MolToMolBlock(mol_3d)
+                    
+                    # Chia màn hình làm 2 cột
+                    left_col, right_col = st.columns([1, 1.5])
                     
                     with left_col:
-                        st.markdown("### 🔬 Cấu trúc Hóa học")
-                        st.image(img, use_container_width=True)
+                        st.markdown("### 🔬 Cấu trúc 3D Interactive")
+                        viewer = py3Dmol.view(width=400, height=350)
+                        viewer.addModel(mol_block, "mol")
+                        viewer.setStyle({'stick': {}, 'sphere': {'radius': 0.4}})
+                        viewer.setBackgroundColor('#0e1117') # Khớp với theme tối
+                        viewer.zoomTo()
+                        showmol(viewer, height=350, width=400)
+                        
+                        st.markdown(f"**Công thức:** {formula}")
+                        st.markdown(f"**Khối lượng:** {mw:.2f} g/mol")
+                        st.markdown(f"**Cấu tạo:** {atoms_str}")
+                        st.markdown(f"**Nhóm chức:** {', '.join(func_groups)}")
                 
                 # 2. Gọi API để AI GNN dự đoán
                 response = requests.post(API_URL, json={"smiles": final_smiles})
