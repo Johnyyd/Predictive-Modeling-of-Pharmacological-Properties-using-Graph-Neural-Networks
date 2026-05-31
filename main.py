@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import torch
 from torch_geometric.data import Data
 from rdkit import Chem
+from rdkit.Chem import Descriptors
 from rdkit import RDLogger
 import os
 
@@ -12,9 +13,9 @@ RDLogger.DisableLog('rdApp.*')
 app = FastAPI(title="PharmaGraph GNN Service")
 
 # 1. KHỞI TẠO NÃO MỚI (Lưu ý: num_node_features đã tăng lên 6)
-ai_model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=1)
+ai_model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=13)
 
-weights_path = "pharma_gnn_weights.pt"
+weights_path = "pharma_gnn_weights_universal.pt"
 if os.path.exists(weights_path):
     try:
         ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
@@ -55,10 +56,18 @@ def smiles_to_graph(smiles_string):
         b_type = bond.GetBondTypeAsDouble()
         edge_features += [[b_type], [b_type]]
         
+    global_features = [
+        Descriptors.MolWt(mol) / 100.0, 
+        Descriptors.MolLogP(mol), 
+        Descriptors.TPSA(mol) / 100.0, 
+        float(Descriptors.NumRotatableBonds(mol))
+    ]
+        
     return Data(
         x=torch.tensor(node_features, dtype=torch.float),
         edge_index=torch.tensor([edges_src, edges_dst], dtype=torch.long),
-        edge_attr=torch.tensor(edge_features, dtype=torch.float)
+        edge_attr=torch.tensor(edge_features, dtype=torch.float),
+        global_features=torch.tensor([global_features], dtype=torch.float)
     )
 
 @app.post("/api/predict")
@@ -71,7 +80,12 @@ async def predict_molecule(request: MoleculeRequest):
         # Thêm batch size giả định = 0 (vì mạng GAT sử dụng Pooling cần có batch)
         graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
         prediction_tensor = ai_model(graph)
-        toxicity_score = prediction_tensor.item() * 100 
+        
+        # Áp dụng Sigmoid để đưa raw logits về khoảng [0, 1]
+        probabilities = torch.sigmoid(prediction_tensor)
+        
+        # Lấy giá trị độc tính cao nhất trong 13 bài test (13 classes bao gồm cả ClinTox)
+        toxicity_score = torch.max(probabilities).item() * 100 
     
     return {
         "smiles": request.smiles,

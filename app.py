@@ -90,15 +90,15 @@ if final_smiles:
                         toxicity_float = float(toxicity_str.replace("%", ""))
                         
                         # ... (Bên trong khối hiển thị kết quả của app.py) ...
-                        if toxicity_float >= 75.0:
+                        if toxicity_float >= 70.0:
                             st.metric(label="Rủi ro Độc tính 🛑", value=toxicity_str, delta="KỊCH ĐỘC (Nguy cơ cực cao)", delta_color="inverse")
-                            st.error("Cảnh báo: Cấu trúc chứa nhiều liên kết có nguy cơ gây biến đổi gen (SR-p53) theo EPA.")
-                        elif toxicity_float >= 40.0:
+                            st.error("Cảnh báo: Hợp chất này có mức rủi ro sinh học cực cao. Phát hiện cấu trúc đặc biệt nguy hiểm.")
+                        elif toxicity_float >= 25.0:
                             st.metric(label="Rủi ro Độc tính ⚠️", value=toxicity_str, delta="Cần lưu ý", delta_color="off")
-                            st.warning("Cấu trúc chứa vòng thơm hoặc liên kết đáng ngờ (như Benzen). Cần đánh giá thêm bằng lâm sàng.")
+                            st.warning("Cấu trúc chứa liên kết hoặc đặc trưng có thể gây độc. Cần đánh giá thêm bằng lâm sàng.")
                         else:
                             st.metric(label="Rủi ro Độc tính ✅", value=toxicity_str, delta="An toàn", delta_color="normal")
-                            st.success("Cấu trúc ổn định, không phát hiện rủi ro nghiêm trọng theo cơ sở dữ liệu Tox21.")
+                            st.success("Cấu trúc ổn định, không phát hiện rủi ro nghiêm trọng theo cơ sở dữ liệu.")
                             
                         st.progress(int(toxicity_float))
                 else:

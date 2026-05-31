@@ -4,76 +4,85 @@ from torch_geometric.loader import DataLoader
 import pandas as pd
 import random
 import os
+import numpy as np
 from sklearn.metrics import roc_auc_score
 
 from model import PharmaGNN
 from main import smiles_to_graph
 
-# --- 1. TẢI DỮ LIỆU CLINTOX (ĐỘC TÍNH LÂM SÀNG CHUNG) ---
-print("[1] Đang tải bộ dữ liệu ClinTox (FDA)...")
-url = "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/clintox.csv.gz"
-df = pd.read_csv(url, compression='gzip')
+# 13 Bài test sinh học (12 của Tox21 + 1 CT_TOX của ClinTox)
+tasks = ['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 
+         'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53', 'CT_TOX']
 
-df = df[['smiles', 'CT_TOX']].dropna()
-print(f"-> Đã tải {len(df)} phân tử. Đang dựng Ma trận Đồ thị (GATv2)...")
+print("[1] Đang tải bộ dữ liệu Đa nhãn Tox21 và ClinTox...")
+url_tox21 = "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/tox21.csv.gz"
+df_tox21 = pd.read_csv(url_tox21, compression='gzip')
+
+url_clintox = "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/clintox.csv.gz"
+df_clintox = pd.read_csv(url_clintox)
+
+# Gộp 2 dataset
+df = pd.merge(df_tox21, df_clintox, on='smiles', how='outer')
+
+# --- LABEL CORRECTION & OVERSAMPLING ---
+# Vì ClinTox/Tox21 chỉ đánh giá "Thuốc", nên các chất độc công nghiệp bị gán nhãn 0 (An toàn).
+# Ta ép mô hình phải học các chất này là Độc hại (CT_TOX = 1.0)
+known_poisons = ['C#N', 'c1ccccc1O', 'C1=CC=C(C=C1)O'] # Cyanide, Phenol
+df.loc[df['smiles'].isin(known_poisons), 'CT_TOX'] = 1.0
+
+# Kỹ thuật Oversampling: Nhân bản các chất kịch độc 100 lần để AI "khắc cốt ghi tâm" 
+# mà không làm hỏng xác suất (calibration) của 9000 chất khác.
+poisons_df = df[df['smiles'].isin(known_poisons)]
+df = pd.concat([df] + [poisons_df]*100, ignore_index=True)
+
+print(f"-> Đã tải {len(df)} phân tử. Đang dựng Ma trận Đồ thị...")
 
 graph_list = []
-num_safe = 0
-num_toxic = 0
-
 for index, row in df.iterrows():
     graph = smiles_to_graph(row['smiles'])
     if graph is not None:
-        label = float(row['CT_TOX'])
-        graph.y = torch.tensor([[label]], dtype=torch.float)
+        # Lấy 12 nhãn. Nếu bị NaN (khuyết), điền -1.0 để làm dấu (Mask)
+        labels = []
+        for task in tasks:
+            val = row[task]
+            labels.append(-1.0 if pd.isna(val) else float(val))
+            
+        graph.y = torch.tensor([labels], dtype=torch.float)
         graph_list.append(graph)
-        
-        if label == 1.0: num_toxic += 1
-        else: num_safe += 1
-
-# Tính trọng số phạt động (giới hạn trần để AI không bị hoảng loạn)
-dynamic_penalty = min(num_safe / num_toxic if num_toxic > 0 else 1.0, 5.0)
-print(f"-> Phân bố: {num_safe} An toàn | {num_toxic} Độc hại.")
-print(f"-> Trọng số phạt Focal Loss: {dynamic_penalty:.2f}")
 
 random.shuffle(graph_list)
 split_idx = int(len(graph_list) * 0.8)
-train_data = graph_list[:split_idx]
-test_data = graph_list[split_idx:]
+train_data, test_data = graph_list[:split_idx], graph_list[split_idx:]
 
-train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
+train_loader = DataLoader(train_data, batch_size=64, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 
-# --- 2. KHỞI TẠO MÔ HÌNH ---
-model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=1)
+# Khởi tạo mô hình Đa nhiệm (num_classes=13)
+model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=13)
 
-# BẮT BUỘC TỰ ĐỘNG XÓA TRỌNG SỐ CŨ (Để AI học lại tư duy ClinTox)
-weights_path = "pharma_gnn_weights.pt"
+weights_path = "pharma_gnn_weights_universal.pt"
 if os.path.exists(weights_path):
-    print("🧹 Tự động xóa ký ức Tox21 cũ để học dữ liệu ClinTox...")
-    os.remove(weights_path)
+    os.remove(weights_path) # Xóa não cũ
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
-# Định nghĩa Focal Loss
-def focal_loss(predictions, targets, pos_weight, gamma=2.0):
-    bce = F.binary_cross_entropy(predictions, targets, reduction='none')
-    pt = torch.exp(-bce)
-    alpha_t = torch.where(targets == 1.0, pos_weight, 1.0)
-    loss = alpha_t * (1 - pt) ** gamma * bce
-    return loss.mean()
-
-# --- 3. VÒNG LẶP HUẤN LUYỆN ---
-epochs = 60 # ClinTox ít dữ liệu hơn, tăng vòng lặp lên 60 để AI ngấm sâu
-print(f"\n[2] Bắt đầu ép xung học tập với {len(train_data)} mẫu ({epochs} vòng)...")
+# --- VÒNG LẶP HUẤN LUYỆN ĐA NHIỆM ---
+epochs = 10
+print(f"\n[2] Bắt đầu học Đa nhiệm (Multi-task) với {len(train_data)} mẫu...")
 
 for epoch in range(epochs):
     model.train() 
     total_loss = 0
     for batch in train_loader:
         optimizer.zero_grad()
-        predictions = model(batch)
-        loss = focal_loss(predictions, batch.y, pos_weight=dynamic_penalty, gamma=2.0)
+        predictions = model(batch) # Xuất ra 12 giá trị
+        
+        # TẠO MẶT NẠ (MASK): Chỉ tính Loss ở những nhãn khác -1.0
+        mask = batch.y != -1.0
+        
+        # Dùng BCEWithLogitsLoss tiêu chuẩn (Đã bao gồm Sigmoid)
+        loss = F.binary_cross_entropy_with_logits(predictions[mask], batch.y[mask])
+        
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -85,16 +94,29 @@ for epoch in range(epochs):
         
         with torch.no_grad():
             for batch in test_loader:
-                preds = model(batch)
-                all_preds.extend(preds.cpu().numpy())
-                all_labels.extend(batch.y.cpu().numpy())
+                preds = torch.sigmoid(model(batch)) # Ép về % khi test
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(batch.y.cpu().numpy())
                 
-        try:
-            auc_score = roc_auc_score(all_labels, all_preds)
-            print(f"Epoch {epoch+1:03d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | Điểm ROC-AUC: {auc_score:.4f}")
-        except ValueError:
-            pass
+        all_preds = np.vstack(all_preds)
+        all_labels = np.vstack(all_labels)
+        
+        # Tính ROC-AUC trung bình cho cả 13 bài test
+        valid_auc_scores = []
+        for i in range(13):
+            task_labels = all_labels[:, i]
+            task_preds = all_preds[:, i]
+            # Chỉ tính toán trên các điểm dữ liệu không bị khuyết (!= -1)
+            valid_idx = task_labels != -1.0
+            if valid_idx.sum() > 0:
+                try:
+                    auc = roc_auc_score(task_labels[valid_idx], task_preds[valid_idx])
+                    valid_auc_scores.append(auc)
+                except ValueError:
+                    pass
+                    
+        mean_auc = np.mean(valid_auc_scores) if valid_auc_scores else 0
+        print(f"Epoch {epoch+1:03d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | ROC-AUC (Trung bình 12 Nhãn): {mean_auc:.4f}")
 
-# --- 4. LƯU THÀNH QUẢ ---
 torch.save(model.state_dict(), weights_path)
-print("\n✅ HOÀN TẤT! AI đã trở thành chuyên gia FDA.")
+print("\n✅ HOÀN TẤT! Mô hình Đa nhiệm đã sẵn sàng.")
