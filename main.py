@@ -3,16 +3,24 @@ from pydantic import BaseModel
 import torch
 from torch_geometric.data import Data
 from rdkit import Chem
-
+import os
 # Import mô hình GNN vừa tạo
 from model import PharmaGNN
 
 app = FastAPI(title="PharmaGraph GNN Service")
 
-# Khởi tạo Bộ não AI (Với đầu vào là 3 đặc trưng nguyên tử chúng ta đã trích xuất)
-# (Trong thực tế, bạn sẽ dùng lệnh torch.load() để tải file .pt đã được train)
-ai_model = PharmaGNN(num_node_features=3, hidden_channels=64, num_classes=1)
-ai_model.eval() # Bật chế độ suy luận (tắt Dropout/BatchNorm)
+ai_model = PharmaGNN(num_node_features=3, hidden_channels=32, num_classes=1)
+
+# Kiểm tra xem file trọng số có tồn tại không rồi nạp vào
+weights_path = "pharma_gnn_weights.pt"
+if os.path.exists(weights_path):
+    # nạp trọng số, weights_only=True là tiêu chuẩn bảo mật mới của PyTorch
+    ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
+    print("✅ Đã nạp thành công trọng số huấn luyện!")
+else:
+    print("⚠️ Chưa có file trọng số, AI đang dùng não ngẫu nhiên.")
+
+ai_model.eval() # Khóa trọng số lại, chỉ dùng để dự đoán
 
 class MoleculeRequest(BaseModel):
     smiles: str
