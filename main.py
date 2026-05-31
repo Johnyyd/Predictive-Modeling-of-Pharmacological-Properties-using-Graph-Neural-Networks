@@ -3,30 +3,42 @@ from pydantic import BaseModel
 import torch
 from torch_geometric.data import Data
 from rdkit import Chem
+from rdkit import RDLogger
 import os
-# Import mô hình GNN vừa tạo
-from model import PharmaGNN
 
+# Import mô hình GNN
+from model import PharmaGNN
+RDLogger.DisableLog('rdApp.*')
 app = FastAPI(title="PharmaGraph GNN Service")
 
-ai_model = PharmaGNN(num_node_features=3, hidden_channels=32, num_classes=1)
+# 1. KHỞI TẠO NÃO MỚI (Lưu ý: num_node_features đã tăng lên 6)
+ai_model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=1)
 
-# Kiểm tra xem file trọng số có tồn tại không rồi nạp vào
 weights_path = "pharma_gnn_weights.pt"
 if os.path.exists(weights_path):
-    # nạp trọng số, weights_only=True là tiêu chuẩn bảo mật mới của PyTorch
-    ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
-    print("✅ Đã nạp thành công trọng số huấn luyện!")
+    try:
+        ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
+        print("✅ Đã nạp thành công trọng số huấn luyện!")
+    except Exception as e:
+        print(f"⚠️ Cảnh báo: Không thể nạp trọng số (có thể do sai lệch kiến trúc). Chi tiết: {e}")
 else:
     print("⚠️ Chưa có file trọng số, AI đang dùng não ngẫu nhiên.")
 
-ai_model.eval() # Khóa trọng số lại, chỉ dùng để dự đoán
+ai_model.eval()
 
 class MoleculeRequest(BaseModel):
     smiles: str
 
+# 2. HÀM BÓC TÁCH 6 ĐẶC TRƯNG HÓA HỌC (Đã nâng cấp)
 def get_atom_features(atom):
-    return [atom.GetAtomicNum(), atom.GetDegree(), int(atom.GetIsAromatic())]
+    return [
+        atom.GetAtomicNum(),            
+        atom.GetDegree(),               
+        int(atom.GetIsAromatic()),      
+        atom.GetValence(Chem.ValenceType.IMPLICIT), # SỬA DÒNG NÀY (Hóa trị ẩn)
+        atom.GetFormalCharge(),         
+        atom.GetNumRadicalElectrons()   
+    ]
 
 def smiles_to_graph(smiles_string):
     mol = Chem.MolFromSmiles(smiles_string)
@@ -55,12 +67,12 @@ async def predict_molecule(request: MoleculeRequest):
     if graph is None:
         raise HTTPException(status_code=400, detail="Chuỗi SMILES không hợp lệ")
     
-    # --- GỌI AI ĐỂ SUY LUẬN ---
-    with torch.no_grad(): # Tắt tính toán đạo hàm để chạy nhanh hơn
+    with torch.no_grad():
+        # Thêm batch size giả định = 0 (vì mạng GAT sử dụng Pooling cần có batch)
+        graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
         prediction_tensor = ai_model(graph)
-        toxicity_score = prediction_tensor.item() * 100 # Chuyển thành %
+        toxicity_score = prediction_tensor.item() * 100 
     
-    # Trả về kết quả JSON cho ứng dụng Frontend (React/Flutter/C#)
     return {
         "smiles": request.smiles,
         "graph_info": {
@@ -75,4 +87,4 @@ async def predict_molecule(request: MoleculeRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
