@@ -7,6 +7,9 @@ from rdkit.Chem import Descriptors
 from rdkit import RDLogger
 import os
 
+# Tự động lấy danh sách 85 hàm đếm nhóm chức từ RDKit
+frag_funcs = [func for name, func in Descriptors.descList if name.startswith('fr_')]
+
 # Import mô hình GNN
 from model import PharmaGNN
 RDLogger.DisableLog('rdApp.*')
@@ -19,11 +22,11 @@ weights_path = "pharma_gnn_weights_universal.pt"
 if os.path.exists(weights_path):
     try:
         ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
-        print("✅ Đã nạp thành công trọng số huấn luyện!")
+        print("[+] Da nap thanh cong trong so huan luyen!")
     except Exception as e:
-        print(f"⚠️ Cảnh báo: Không thể nạp trọng số (có thể do sai lệch kiến trúc). Chi tiết: {e}")
+        print(f"[-] Canh bao: Khong the nap trong so (co the do sai lech kien truc). Chi tiet: {e}")
 else:
-    print("⚠️ Chưa có file trọng số, AI đang dùng não ngẫu nhiên.")
+    print("[-] Chua co file trong so, AI dang dung nao ngau nhien.")
 
 ai_model.eval()
 
@@ -62,12 +65,16 @@ def smiles_to_graph(smiles_string):
         Descriptors.TPSA(mol) / 100.0, 
         float(Descriptors.NumRotatableBonds(mol))
     ]
+    
+    # Trích xuất 85 đặc trưng nhóm chức (Functional Groups)
+    func_group_features = [float(func(mol)) for func in frag_funcs]
         
     return Data(
         x=torch.tensor(node_features, dtype=torch.float),
         edge_index=torch.tensor([edges_src, edges_dst], dtype=torch.long),
         edge_attr=torch.tensor(edge_features, dtype=torch.float),
-        global_features=torch.tensor([global_features], dtype=torch.float)
+        global_features=torch.tensor([global_features], dtype=torch.float),
+        func_group_features=torch.tensor([func_group_features], dtype=torch.float)
     )
 
 @app.post("/api/predict")

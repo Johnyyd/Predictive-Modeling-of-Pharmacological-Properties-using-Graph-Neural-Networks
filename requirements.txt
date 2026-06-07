@@ -1,0 +1,16 @@
+streamlit
+pubchempy
+rdkit
+py3Dmol
+stmol
+torch
+torch_geometry
+sklearn
+numpy
+pandas
+matplotlib
+seaborn
+scipy
+openbabel
+requests
+fastapi

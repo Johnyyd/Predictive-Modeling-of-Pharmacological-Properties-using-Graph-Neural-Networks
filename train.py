@@ -27,13 +27,47 @@ df = pd.merge(df_tox21, df_clintox, on='smiles', how='outer')
 # --- LABEL CORRECTION & OVERSAMPLING ---
 # Vì ClinTox/Tox21 chỉ đánh giá "Thuốc", nên các chất độc công nghiệp bị gán nhãn 0 (An toàn).
 # Ta ép mô hình phải học các chất này là Độc hại (CT_TOX = 1.0)
-known_poisons = ['C#N', 'c1ccccc1O', 'C1=CC=C(C=C1)O'] # Cyanide, Phenol
+known_poisons = [
+    'C#N', 'c1ccccc1O', 'C1=CC=C(C=C1)O', # Cyanide, Phenol
+    'C(C(=O)O)NCP(=O)(O)O', # Glyphosate
+    'Clc1ccc(C(c2ccc(Cl)cc2)C(Cl)(Cl)Cl)cc1' # DDT
+]
+
+known_safe = [
+    'C(C(=O)O)N', # Glycine
+    'CC(C(=O)O)N', # Alanine
+    'CC(C)C(C(=O)O)N', # Valine
+    'CC(=O)Nc1ccc(O)cc1', # Paracetamol
+    'CC(=O)Oc1ccccc1C(=O)O', # Aspirin
+]
+
+# Bổ sung trực tiếp poisons nếu chưa có trong tập dữ liệu
+new_poisons_df = pd.DataFrame({'smiles': ['C(C(=O)O)NCP(=O)(O)O', 'Clc1ccc(C(c2ccc(Cl)cc2)C(Cl)(Cl)Cl)cc1']})
+for task in tasks:
+    new_poisons_df[task] = -1.0 # Mask
+new_poisons_df['CT_TOX'] = 1.0 # Gắn nhãn kịch độc
+df = pd.concat([df, new_poisons_df], ignore_index=True)
+
+# Tắt 12 nhãn Tox21 (-1.0) cho các chất kịch độc để tránh xung đột Multi-task learning
+for task in tasks:
+    if task != 'CT_TOX':
+        df.loc[df['smiles'].isin(known_poisons), task] = -1.0
 df.loc[df['smiles'].isin(known_poisons), 'CT_TOX'] = 1.0
 
-# Kỹ thuật Oversampling: Nhân bản các chất kịch độc 100 lần để AI "khắc cốt ghi tâm" 
-# mà không làm hỏng xác suất (calibration) của 9000 chất khác.
+# Bổ sung trực tiếp safe compounds nếu chưa có
+new_safe_df = pd.DataFrame({'smiles': known_safe})
+for task in tasks:
+    new_safe_df[task] = -1.0 # Mask
+new_safe_df['CT_TOX'] = 0.0 # Gắn nhãn an toàn
+df = pd.concat([df, new_safe_df], ignore_index=True)
+
+df.loc[df['smiles'].isin(known_safe), 'CT_TOX'] = 0.0
+
+# Kỹ thuật Oversampling: Phục hồi lại 100 lần để ép mô hình học thuộc các chất cốt lõi 
+# (Vì đã có MLP nên không sợ bị bias nhầm).
 poisons_df = df[df['smiles'].isin(known_poisons)]
-df = pd.concat([df] + [poisons_df]*100, ignore_index=True)
+safe_df = df[df['smiles'].isin(known_safe)]
+df = pd.concat([df] + [poisons_df]*100 + [safe_df]*100, ignore_index=True)
 
 print(f"-> Đã tải {len(df)} phân tử. Đang dựng Ma trận Đồ thị...")
 
@@ -80,8 +114,9 @@ for epoch in range(epochs):
         # TẠO MẶT NẠ (MASK): Chỉ tính Loss ở những nhãn khác -1.0
         mask = batch.y != -1.0
         
-        # Dùng BCEWithLogitsLoss tiêu chuẩn (Đã bao gồm Sigmoid)
-        loss = F.binary_cross_entropy_with_logits(predictions[mask], batch.y[mask])
+        # Dùng BCEWithLogitsLoss với trọng số phạt (pos_weight) để cân bằng dữ liệu gốc
+        pos_weight = torch.tensor([5.0]).to(predictions.device)
+        loss = F.binary_cross_entropy_with_logits(predictions[mask], batch.y[mask], pos_weight=pos_weight)
         
         loss.backward()
         optimizer.step()
