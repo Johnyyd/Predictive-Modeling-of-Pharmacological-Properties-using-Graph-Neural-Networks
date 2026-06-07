@@ -6,6 +6,10 @@ from rdkit.Chem import Draw, rdMolDescriptors, AllChem, Fragments, Descriptors
 from collections import Counter
 import py3Dmol
 from stmol import showmol
+try:
+    from streamlit_ketcher import st_ketcher
+except ImportError:
+    st_ketcher = None
 # Cấu hình trang Dashboard
 st.set_page_config(page_title="PharmaGraph AI", page_icon="🧬", layout="wide")
 
@@ -36,11 +40,21 @@ search_name = st.text_input("Nhập tên thuốc hoặc hóa chất bằng tiế
 st.markdown("### 🧪 Cách 3: Nhập trực tiếp cấu trúc phân tử (Chuỗi SMILES)")
 raw_smiles = st.text_input("Dành cho hóa chất mới tự tổng hợp hoặc không có trong cơ sở dữ liệu:", placeholder="Ví dụ: C1=CC=C(C=C1)O")
 
+# --- GIẢI PHÁP 4: VẼ TRỰC TIẾP ---
+drawn_smiles = ""
+if st_ketcher is not None:
+    st.markdown("### 🖌️ Cách 4: Vẽ phân tử trực tiếp (Dành cho người không chuyên)")
+    st.markdown("Sử dụng công cụ dưới đây để vẽ. Hệ thống sẽ tự động dịch hình vẽ thành mã hóa học. Nhấn **Apply** sau khi vẽ xong.")
+    drawn_smiles = st_ketcher(key="ketcher_editor")
+
 # Biến trung gian để chốt chuỗi SMILES cuối cùng đẩy vào AI
 final_smiles = ""
 
-# Ưu tiên: SMILES nhập tay -> Tìm kiếm PubChem -> Danh sách mẫu
-if raw_smiles:
+# Ưu tiên: Vẽ tay -> SMILES nhập tay -> Tìm kiếm PubChem -> Danh sách mẫu
+if drawn_smiles and drawn_smiles != "":
+    final_smiles = drawn_smiles.strip()
+    st.info(f"🎨 Đang sử dụng hình vẽ phân tử (SMILES: `{final_smiles}`)")
+elif raw_smiles:
     final_smiles = raw_smiles.strip()
     st.info(f"🧬 Đang sử dụng cấu trúc SMILES nhập tay: `{final_smiles}`")
 elif search_name:
@@ -98,6 +112,18 @@ if final_smiles:
                     AllChem.EmbedMolecule(mol_3d, randomSeed=42)
                     mol_block = Chem.MolToMolBlock(mol_3d)
                     
+                    # Truy xuất ngược tên Hóa chất từ SMILES bằng PubChem
+                    compound_name = "Chất vô danh (Không có trong dữ liệu quốc tế)"
+                    try:
+                        c = pcp.get_compounds(final_smiles, 'smiles')
+                        if c:
+                            if c[0].synonyms:
+                                compound_name = c[0].synonyms[0]
+                            elif c[0].iupac_name:
+                                compound_name = c[0].iupac_name
+                    except Exception:
+                        pass
+                    
                     # Chia màn hình làm 2 cột
                     left_col, right_col = st.columns([1, 1.5])
                     
@@ -110,6 +136,7 @@ if final_smiles:
                         viewer.zoomTo()
                         showmol(viewer, height=350, width=400)
                         
+                        st.markdown(f"**Tên định danh:** {compound_name}")
                         st.markdown(f"**Công thức:** {formula}")
                         st.markdown(f"**Khối lượng:** {mw:.2f} g/mol")
                         st.markdown(f"**Cấu tạo:** {atoms_str}")
