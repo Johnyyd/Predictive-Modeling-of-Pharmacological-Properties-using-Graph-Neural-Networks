@@ -26,8 +26,8 @@ class FunctionalGroupInteraction(torch.nn.Module):
         return F.relu(self.fc(out))
 
 class PharmaGNN(torch.nn.Module):
-    # num_classes bây giờ sẽ là 13, thêm num_global_features=4
-    def __init__(self, num_node_features, hidden_channels, num_classes=13, num_global_features=4, num_func_groups=85):
+    # num_classes bây giờ sẽ là 13, thêm num_global_features=11 (4 gốc + 7 mật độ độc tính)
+    def __init__(self, num_node_features, hidden_channels, num_classes=13, num_global_features=11, num_func_groups=85):
         super(PharmaGNN, self).__init__()
         
         self.conv1 = GATv2Conv(num_node_features, hidden_channels, heads=2, edge_dim=1, concat=False)

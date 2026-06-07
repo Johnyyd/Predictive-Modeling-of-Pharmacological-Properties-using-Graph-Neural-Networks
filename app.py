@@ -32,11 +32,18 @@ selected_preset = st.selectbox("Bấm vào đây để chọn nhanh một chất
 st.markdown("### 🔍 Cách 2: Tìm kiếm bằng Tên thông thường (Tiếng Anh)")
 search_name = st.text_input("Nhập tên thuốc hoặc hóa chất bằng tiếng Anh:", placeholder="Ví dụ: Ibuprofen, Penicillin, Nicotine, Water...")
 
+# --- GIẢI PHÁP 3: NHẬP TRỰC TIẾP CHUỖI SMILES ---
+st.markdown("### 🧪 Cách 3: Nhập trực tiếp cấu trúc phân tử (Chuỗi SMILES)")
+raw_smiles = st.text_input("Dành cho hóa chất mới tự tổng hợp hoặc không có trong cơ sở dữ liệu:", placeholder="Ví dụ: C1=CC=C(C=C1)O")
+
 # Biến trung gian để chốt chuỗi SMILES cuối cùng đẩy vào AI
 final_smiles = ""
 
-# Ưu tiên lấy từ ô tìm kiếm trước, nếu trống thì lấy từ danh sách mẫu
-if search_name:
+# Ưu tiên: SMILES nhập tay -> Tìm kiếm PubChem -> Danh sách mẫu
+if raw_smiles:
+    final_smiles = raw_smiles.strip()
+    st.info(f"🧬 Đang sử dụng cấu trúc SMILES nhập tay: `{final_smiles}`")
+elif search_name:
     with st.spinner(f"🔍 Đang tìm cấu trúc của '{search_name}' trên kho dữ liệu quốc tế PubChem..."):
         try:
             # Tìm kiếm bằng Tên trước
@@ -50,11 +57,11 @@ if search_name:
                 final_smiles = compounds[0].isomeric_smiles
                 st.info(f"🧬 Đã tìm thấy cấu trúc SMILES phù hợp: `{final_smiles}` (Khớp với: {compounds[0].synonyms[0] if compounds[0].synonyms else 'Chất vô danh'})")
             else:
-                st.error(f"❌ Không tìm thấy chất nào khớp với Tên hoặc Công thức '{search_name}'. Vui lòng kiểm tra lại!")
+                st.error(f"❌ Không tìm thấy chất nào khớp với Tên hoặc Công thức '{search_name}'. Vui lòng kiểm tra lại hoặc chuyển sang Cách 3!")
         except Exception as e:
             error_msg = str(e)
             if "PUGREST.BadRequest" in error_msg:
-                st.error(f"❌ '{search_name}' có thể là một danh mục quá rộng (như Thuốc trừ sâu, Nhựa...) hoặc không phải là tên một hóa chất cụ thể. Vui lòng nhập tên một chất chính xác hơn (ví dụ: Glyphosate thay vì Pesticide).")
+                st.error(f"❌ '{search_name}' có thể là một danh mục quá rộng. Vui lòng nhập tên một chất chính xác hơn hoặc dùng Cách 3.")
             else:
                 st.error(f"Lỗi kết nối mạng hoặc lỗi từ PubChem: {e}")
 elif selected_preset and selected_preset != "Chưa chọn...":

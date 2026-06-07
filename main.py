@@ -10,6 +10,35 @@ import os
 # Tự động lấy danh sách 85 hàm đếm nhóm chức từ RDKit
 frag_funcs = [func for name, func in Descriptors.descList if name.startswith('fr_')]
 
+# Danh sách cảnh báo độc tính tiên nghiệm (Knowledge-based Toxicophores)
+toxic_smarts = [
+    'C#N', # Cyanide
+    'P(=O)(O)(O)', # Organophosphates
+    'c1ccccc1', # Benzene ring
+    'c1ccccc1O', # Phenol
+    '[CX3H1](=O)', # Aldehyde (như Formaldehyde)
+    '[S]', # Sulfide (H2S, thiols)
+    '[Cl,Br,I]c1ccccc1', # Halogenated aromatics (PCB, DDT)
+]
+toxic_patterns = [Chem.MolFromSmarts(sm) for sm in toxic_smarts]
+
+def get_toxicophore_density(mol):
+    total_atoms = mol.GetNumAtoms()
+    if total_atoms == 0: return [0.0]*len(toxic_patterns)
+    
+    densities = []
+    for pattern in toxic_patterns:
+        matches = mol.GetSubstructMatches(pattern)
+        if not matches:
+            densities.append(0.0)
+        else:
+            # Đếm số nguyên tử độc duy nhất
+            toxic_atoms = set()
+            for match in matches:
+                toxic_atoms.update(match)
+            densities.append(len(toxic_atoms) / total_atoms)
+    return densities
+
 # Import mô hình GNN
 from model import PharmaGNN
 RDLogger.DisableLog('rdApp.*')
@@ -65,6 +94,10 @@ def smiles_to_graph(smiles_string):
         Descriptors.TPSA(mol) / 100.0, 
         float(Descriptors.NumRotatableBonds(mol))
     ]
+    
+    # Cộng gộp 7 đặc trưng Mật độ Độc tính vào Global Features
+    toxic_densities = get_toxicophore_density(mol)
+    global_features.extend(toxic_densities)
     
     # Trích xuất 85 đặc trưng nhóm chức (Functional Groups)
     func_group_features = [float(func(mol)) for func in frag_funcs]
