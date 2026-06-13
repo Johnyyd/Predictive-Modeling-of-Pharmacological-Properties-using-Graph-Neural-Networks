@@ -61,6 +61,7 @@ ai_model.eval()
 
 class MoleculeRequest(BaseModel):
     smiles: str
+    concentration_molar: float = 1.0 # Default 1.0 Molar
 
 # 2. HÀM BÓC TÁCH 6 ĐẶC TRƯNG HÓA HỌC (Đã nâng cấp)
 def get_atom_features(atom):
@@ -68,7 +69,7 @@ def get_atom_features(atom):
         atom.GetAtomicNum(),            
         atom.GetDegree(),               
         int(atom.GetIsAromatic()),      
-        atom.GetValence(Chem.ValenceType.IMPLICIT), # SỬA DÒNG NÀY (Hóa trị ẩn)
+        atom.GetImplicitValence(), # Hóa trị ẩn
         atom.GetFormalCharge(),         
         atom.GetNumRadicalElectrons()   
     ]
@@ -110,31 +111,89 @@ def smiles_to_graph(smiles_string):
         func_group_features=torch.tensor([func_group_features], dtype=torch.float)
     )
 
+from torch_geometric.explain import Explainer, GNNExplainer
+import math
+
 @app.post("/api/predict")
 async def predict_molecule(request: MoleculeRequest):
     graph = smiles_to_graph(request.smiles)
     if graph is None:
         raise HTTPException(status_code=400, detail="Chuỗi SMILES không hợp lệ")
+        
+    # Tính pIC50 từ nồng độ (Molar)
+    if request.concentration_molar <= 0:
+        pIC50 = 0.0
+    else:
+        pIC50 = -math.log10(request.concentration_molar)
+        
+    concentration_tensor = torch.tensor([[pIC50]], dtype=torch.float)
+    graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
     
     with torch.no_grad():
-        # Thêm batch size giả định = 0 (vì mạng GAT sử dụng Pooling cần có batch)
-        graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
-        prediction_tensor = ai_model(graph)
+        prediction_tensor = ai_model(
+            x=graph.x, 
+            edge_index=graph.edge_index, 
+            edge_attr=graph.edge_attr, 
+            batch=graph.batch, 
+            global_features=graph.global_features, 
+            func_group_features=graph.func_group_features,
+            concentration=concentration_tensor
+        )
         
         # Áp dụng Sigmoid để đưa raw logits về khoảng [0, 1]
         probabilities = torch.sigmoid(prediction_tensor)
         
         # Lấy giá trị độc tính cao nhất trong 13 bài test (13 classes bao gồm cả ClinTox)
-        toxicity_score = torch.max(probabilities).item() * 100 
+        max_prob, target_class = torch.max(probabilities, dim=1)
+        toxicity_score = max_prob.item() * 100 
+        target_class_idx = target_class.item()
+        
+    # Giải thích bằng GNNExplainer
+    # Bật gradient cho các features tạm thời (vì GNNExplainer cần backward pass)
+    ai_model.eval()
+    explainer = Explainer(
+        model=ai_model,
+        algorithm=GNNExplainer(epochs=50),
+        explanation_type='model',
+        node_mask_type='attributes',
+        edge_mask_type='object',
+        model_config=dict(
+            mode='multiclass_classification',
+            task_level='graph',
+            return_type='raw',
+        ),
+    )
+    
+    explanation = explainer(
+        x=graph.x,
+        edge_index=graph.edge_index,
+        edge_attr=graph.edge_attr,
+        batch=graph.batch,
+        global_features=graph.global_features,
+        func_group_features=graph.func_group_features,
+        concentration=concentration_tensor
+    )
+    
+    # Lấy trọng số các node (nguyên tử)
+    if explanation.node_mask is not None:
+        node_importance = explanation.node_mask.mean(dim=1).tolist()
+    else:
+        node_importance = [0.0] * graph.num_nodes
     
     return {
         "smiles": request.smiles,
+        "concentration_molar": request.concentration_molar,
+        "pIC50": pIC50,
         "graph_info": {
             "atoms_count": graph.num_nodes,
             "bonds_count": graph.num_edges // 2
         },
         "predictions": {
-            "toxicity_risk": f"{toxicity_score:.2f}%"
+            "toxicity_risk": f"{toxicity_score:.2f}%",
+            "target_class": target_class_idx
+        },
+        "explanation": {
+            "node_importance": node_importance
         },
         "status": "Success"
     }

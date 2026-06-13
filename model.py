@@ -38,15 +38,27 @@ class PharmaGNN(torch.nn.Module):
         
         self.fg_interaction = FunctionalGroupInteraction(num_groups=num_func_groups, embed_dim=8)
         
-        self.lin1 = torch.nn.Linear(hidden_channels * 2 + num_global_features + 32, hidden_channels)
+        # +1 cho đặc trưng nồng độ (concentration - pIC50)
+        self.lin1 = torch.nn.Linear(hidden_channels * 2 + num_global_features + 32 + 1, hidden_channels)
         # Lớp này sẽ xuất ra 12 giá trị (Logits)
         self.lin2 = torch.nn.Linear(hidden_channels, num_classes)
 
-    def forward(self, data):
-        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
-        global_features = data.global_features
-        fg_features = data.func_group_features
-        
+    def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, func_group_features=None, concentration=None):
+        if batch is None:
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            
+        batch_size = batch.max().item() + 1
+            
+        if concentration is None:
+            # Nếu không có nồng độ, giả định pIC50 = 0.0 (tương đương 1.0 Molar)
+            concentration = torch.zeros(batch_size, 1, dtype=torch.float, device=x.device)
+            
+        if global_features is None:
+            global_features = torch.zeros(batch_size, 11, dtype=torch.float, device=x.device)
+            
+        if func_group_features is None:
+            func_group_features = torch.zeros(batch_size, 85, dtype=torch.float, device=x.device)
+
         x = self.conv1(x, edge_index, edge_attr=edge_attr)
         x = self.bn1(x)
         x = F.leaky_relu(x)
@@ -59,9 +71,9 @@ class PharmaGNN(torch.nn.Module):
         x_max = global_max_pool(x, batch)
         
         # Học tương tác nhóm chức
-        fg_out = self.fg_interaction(fg_features)
+        fg_out = self.fg_interaction(func_group_features)
         
-        x = torch.cat([x_mean, x_max, global_features, fg_out], dim=1) 
+        x = torch.cat([x_mean, x_max, global_features, fg_out, concentration], dim=1) 
         
         x = F.dropout(x, p=0.5, training=self.training)
         x = self.lin1(x)

@@ -16,7 +16,8 @@ st.set_page_config(page_title="PharmaGraph AI", page_icon="🧬", layout="wide")
 st.title("🧬 Hệ thống Phân tích Dược phẩm PharmaGraph")
 st.markdown("Dự đoán rủi ro độc tính phân tử bằng GNN kết hợp **Cơ chế Attention học Tương tác Nhóm chức**, dành cho Chuyên viên và Nhà nghiên cứu.")
 
-API_URL = "http://localhost:8000/api/predict"
+import os
+API_URL = os.environ.get("API_URL", "http://localhost:8000/api/predict")
 
 # --- GIẢI PHÁP 1: DANH SÁCH MẪU CÓ SẴN (PRESETS) ---
 st.markdown("### 🗂️ Cách 1: Chọn nhanh dược chất từ danh sách mẫu")
@@ -84,96 +85,121 @@ elif selected_preset and selected_preset != "Chưa chọn...":
 # --- KHỐI XỬ LÝ VÀ HIỂN THỊ KẾT QUẢ ---
 if final_smiles:
     st.markdown("---")
+    concentration_input = st.number_input("🧪 Nhập Nồng độ / Liều lượng (Molar) - Để 1.0 M nếu không có dữ liệu:", min_value=0.0, max_value=10.0, value=1.0, step=0.1, format="%f")
     if st.button("🚀 Chạy phân tích AI bằng mạng GNN"):
         with st.spinner("Mạng GNN đang bóc tách đồ thị phân tử và tính toán..."):
             try:
-                # 1. Phân tích chi tiết và vẽ 3D bằng RDKit & py3Dmol
-                mol = Chem.MolFromSmiles(final_smiles)
-                if mol is not None:
-                    # Trích xuất thông tin
-                    formula = rdMolDescriptors.CalcMolFormula(mol)
-                    mw = rdMolDescriptors.CalcExactMolWt(mol)
-                    
-                    atoms_list = [atom.GetSymbol() for atom in mol.GetAtoms()]
-                    atoms_count = dict(Counter(atoms_list))
-                    atoms_str = ", ".join([f"{k}: {v}" for k, v in atoms_count.items()])
-                    
-                    func_groups = []
-                    for name, func in Descriptors.descList:
-                        if name.startswith('fr_'):
-                            count = func(mol)
-                            if count > 0:
-                                friendly_name = name.replace('fr_', '')
-                                func_groups.append(f"{friendly_name} ({count})")
-                    if not func_groups: func_groups.append("Không có nhóm chức đặc biệt")
-                    
-                    # Sinh tọa độ 3D
-                    mol_3d = Chem.AddHs(mol)
-                    AllChem.EmbedMolecule(mol_3d, randomSeed=42)
-                    mol_block = Chem.MolToMolBlock(mol_3d)
-                    
-                    # Truy xuất ngược tên Hóa chất từ SMILES bằng PubChem
-                    compound_name = "Chất vô danh (Không có trong dữ liệu quốc tế)"
-                    try:
-                        c = pcp.get_compounds(final_smiles, 'smiles')
-                        if c:
-                            if c[0].synonyms:
-                                compound_name = c[0].synonyms[0]
-                            elif c[0].iupac_name:
-                                compound_name = c[0].iupac_name
-                    except Exception:
-                        pass
-                    
-                    # Chia màn hình làm 2 cột
-                    left_col, right_col = st.columns([1, 1.5])
-                    
-                    with left_col:
-                        st.markdown("### 🔬 Cấu trúc 3D Interactive")
-                        viewer = py3Dmol.view(width=400, height=350)
-                        viewer.addModel(mol_block, "mol")
-                        viewer.setStyle({'stick': {}, 'sphere': {'radius': 0.4}})
-                        viewer.setBackgroundColor('#0e1117') # Khớp với theme tối
-                        viewer.zoomTo()
-                        showmol(viewer, height=350, width=400)
-                        
-                        st.markdown(f"**Tên định danh:** {compound_name}")
-                        st.markdown(f"**Công thức:** {formula}")
-                        st.markdown(f"**Khối lượng:** {mw:.2f} g/mol")
-                        st.markdown(f"**Cấu tạo:** {atoms_str}")
-                        st.markdown(f"**Nhóm chức:** {', '.join(func_groups)}")
-                
-                # 2. Gọi API để AI GNN dự đoán
-                response = requests.post(API_URL, json={"smiles": final_smiles})
+                # 1. Gọi API để AI GNN dự đoán
+                response = requests.post(API_URL, json={"smiles": final_smiles, "concentration_molar": concentration_input})
                 if response.status_code == 200:
                     data = response.json()
                     
-                    with right_col:
-                        st.success("✅ Phân tích AI hoàn tất!")
-                        st.markdown("### 📊 Chỉ số Đồ thị & Dự đoán")
+                    # 2. Phân tích chi tiết và vẽ 3D bằng RDKit & py3Dmol
+                    mol = Chem.MolFromSmiles(final_smiles)
+                    if mol is not None:
+                        # Trích xuất thông tin
+                        formula = rdMolDescriptors.CalcMolFormula(mol)
+                        mw = rdMolDescriptors.CalcExactMolWt(mol)
                         
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.metric(label="Số lượng Nguyên tử (Nodes)", value=data["graph_info"]["atoms_count"])
-                        with col_b:
-                            st.metric(label="Số lượng Liên kết (Edges)", value=data["graph_info"]["bonds_count"])
+                        atoms_list = [atom.GetSymbol() for atom in mol.GetAtoms()]
+                        atoms_count = dict(Counter(atoms_list))
+                        atoms_str = ", ".join([f"{k}: {v}" for k, v in atoms_count.items()])
                         
-                        st.markdown("<br>", unsafe_allow_html=True) # Tạo khoảng trống
+                        func_groups = []
+                        for name, func in Descriptors.descList:
+                            if name.startswith('fr_'):
+                                count = func(mol)
+                                if count > 0:
+                                    friendly_name = name.replace('fr_', '')
+                                    func_groups.append(f"{friendly_name} ({count})")
+                        if not func_groups: func_groups.append("Không có nhóm chức đặc biệt")
                         
-                        toxicity_str = data["predictions"]["toxicity_risk"]
-                        toxicity_float = float(toxicity_str.replace("%", ""))
+                        # Sinh tọa độ 3D
+                        mol_3d = Chem.AddHs(mol)
+                        AllChem.EmbedMolecule(mol_3d, randomSeed=42)
+                        mol_block = Chem.MolToMolBlock(mol_3d)
                         
-                        # ... (Bên trong khối hiển thị kết quả của app.py) ...
-                        if toxicity_float >= 80.0:
-                            st.metric(label="Rủi ro Độc tính 🛑", value=toxicity_str, delta="KỊCH ĐỘC (Nguy cơ cực cao)", delta_color="inverse")
-                            st.error("Cảnh báo: Hợp chất này có mức rủi ro sinh học cực cao. Phát hiện cấu trúc đặc biệt nguy hiểm.")
-                        elif toxicity_float >= 50.0:
-                            st.metric(label="Rủi ro Độc tính ⚠️", value=toxicity_str, delta="Cần lưu ý", delta_color="off")
-                            st.warning("Cấu trúc chứa liên kết hoặc đặc trưng có thể gây độc. Cần đánh giá thêm bằng lâm sàng.")
-                        else:
-                            st.metric(label="Rủi ro Độc tính ✅", value=toxicity_str, delta="An toàn", delta_color="normal")
-                            st.success("Cấu trúc ổn định, không phát hiện rủi ro nghiêm trọng theo cơ sở dữ liệu.")
+                        # Truy xuất ngược tên Hóa chất từ SMILES bằng PubChem
+                        compound_name = "Chất vô danh (Không có trong dữ liệu quốc tế)"
+                        try:
+                            c = pcp.get_compounds(final_smiles, 'smiles')
+                            if c:
+                                if c[0].synonyms:
+                                    compound_name = c[0].synonyms[0]
+                                elif c[0].iupac_name:
+                                    compound_name = c[0].iupac_name
+                        except Exception:
+                            pass
+                        
+                        # Chia màn hình làm 2 cột
+                        left_col, right_col = st.columns([1, 1.5])
+                        
+                        with left_col:
+                            st.markdown("### 🔬 Cấu trúc 3D Interactive")
+                            viewer = py3Dmol.view(width=400, height=350)
+                            viewer.addModel(mol_block, "mol")
                             
-                        st.progress(int(toxicity_float))
+                            # Tô màu nguyên tử độc tính (khoanh vùng đỏ)
+                            node_importance = data.get("explanation", {}).get("node_importance", [])
+                            risk_str = data.get("predictions", {}).get("toxicity_risk", "0%")
+                            try:
+                                risk_value = float(risk_str.replace('%', ''))
+                            except:
+                                risk_value = 0.0
+
+                            if node_importance and risk_value > 50.0:
+                                max_imp = max(node_importance) if max(node_importance) > 0 else 1.0
+                                
+                                # Thiết lập hiển thị liên kết (stick) cho toàn bộ phân tử trước
+                                viewer.setStyle({'stick': {'radius': 0.15}})
+                                
+                                for i, imp in enumerate(node_importance):
+                                    norm_imp = imp / max_imp
+                                    # Chỉ highlight nguyên tử có trọng số > 85% so với max (chỉ nguyên tử độc nhất)
+                                    if norm_imp > 0.85:
+                                        viewer.addStyle({'serial': i+1}, {'sphere': {'color': 'red', 'radius': 0.5}})
+                                    else:
+                                        viewer.addStyle({'serial': i+1}, {'sphere': {'color': 'white', 'radius': 0.3}})
+                            else:
+                                # Nếu không độc, vẽ toàn bộ màu mặc định
+                                viewer.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.3}})
+                            
+                            viewer.setBackgroundColor('#0e1117') # Khớp với theme tối
+                            viewer.zoomTo()
+                            showmol(viewer, height=350, width=400)
+                            
+                            st.markdown(f"**Tên định danh:** {compound_name}")
+                            st.markdown(f"**Công thức:** {formula}")
+                            st.markdown(f"**Khối lượng:** {mw:.2f} g/mol")
+                            st.markdown(f"**Cấu tạo:** {atoms_str}")
+                            st.markdown(f"**Nhóm chức:** {', '.join(func_groups)}")
+                    
+                        with right_col:
+                            st.success("✅ Phân tích AI hoàn tất!")
+                            st.markdown("### 📊 Chỉ số Đồ thị & Dự đoán")
+                            
+                            col_a, col_b = st.columns(2)
+                            with col_a:
+                                st.metric(label="Số lượng Nguyên tử (Nodes)", value=data["graph_info"]["atoms_count"])
+                            with col_b:
+                                st.metric(label="Số lượng Liên kết (Edges)", value=data["graph_info"]["bonds_count"])
+                            
+                            st.markdown("<br>", unsafe_allow_html=True) # Tạo khoảng trống
+                            
+                            toxicity_str = data["predictions"]["toxicity_risk"]
+                            toxicity_float = float(toxicity_str.replace("%", ""))
+                            
+                            if toxicity_float >= 80.0:
+                                st.metric(label="Rủi ro Độc tính 🛑", value=toxicity_str, delta="KỊCH ĐỘC (Nguy cơ cực cao)", delta_color="inverse")
+                                st.error("Cảnh báo: Hợp chất này có mức rủi ro sinh học cực cao. Phát hiện cấu trúc đặc biệt nguy hiểm.")
+                            elif toxicity_float >= 50.0:
+                                st.metric(label="Rủi ro Độc tính ⚠️", value=toxicity_str, delta="Cần lưu ý", delta_color="off")
+                                st.warning("Cấu trúc chứa liên kết hoặc đặc trưng có thể gây độc. Cần đánh giá thêm bằng lâm sàng.")
+                            else:
+                                st.metric(label="Rủi ro Độc tính ✅", value=toxicity_str, delta="An toàn", delta_color="normal")
+                                st.success("Cấu trúc ổn định, không phát hiện rủi ro nghiêm trọng theo cơ sở dữ liệu.")
+                                
+                            st.progress(int(toxicity_float))
                 else:
                     st.error(f"Lỗi từ máy chủ AI: {response.text}")
             except Exception as e:

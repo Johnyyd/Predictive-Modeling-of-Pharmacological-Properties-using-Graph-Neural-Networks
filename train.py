@@ -109,7 +109,15 @@ for epoch in range(epochs):
     total_loss = 0
     for batch in train_loader:
         optimizer.zero_grad()
-        predictions = model(batch) # Xuất ra 12 giá trị
+        predictions = model(
+            x=batch.x, 
+            edge_index=batch.edge_index, 
+            edge_attr=getattr(batch, 'edge_attr', None),
+            batch=batch.batch, 
+            global_features=getattr(batch, 'global_features', None), 
+            func_group_features=getattr(batch, 'func_group_features', None),
+            concentration=getattr(batch, 'concentration', None)
+        ) # Xuất ra 12 giá trị
         
         # TẠO MẶT NẠ (MASK): Chỉ tính Loss ở những nhãn khác -1.0
         mask = batch.y != -1.0
@@ -129,7 +137,15 @@ for epoch in range(epochs):
         
         with torch.no_grad():
             for batch in test_loader:
-                preds = torch.sigmoid(model(batch)) # Ép về % khi test
+                preds = torch.sigmoid(model(
+                    x=batch.x, 
+                    edge_index=batch.edge_index, 
+                    edge_attr=getattr(batch, 'edge_attr', None),
+                    batch=batch.batch, 
+                    global_features=getattr(batch, 'global_features', None), 
+                    func_group_features=getattr(batch, 'func_group_features', None),
+                    concentration=getattr(batch, 'concentration', None)
+                )) # Ép về % khi test
                 all_preds.append(preds.cpu().numpy())
                 all_labels.append(batch.y.cpu().numpy())
                 

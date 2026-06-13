@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# System dependencies for PyTorch & RDKit
+RUN apt-get update && apt-get install -y \
+    libxrender1 libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+RUN pip install --no-cache-dir \
+    "numpy<2" \
+    fastapi uvicorn pydantic \
+    torch \
+    torch-geometric \
+    rdkit-pypi
+
+COPY model.py main.py pharma_gnn_weights_universal.pt* /app/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
