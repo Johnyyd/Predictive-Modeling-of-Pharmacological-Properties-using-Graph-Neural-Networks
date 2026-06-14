@@ -37,7 +37,7 @@ df = pd.merge(df_tox21, df_clintox, on='smiles', how='outer')
 # Vì ClinTox/Tox21 chủ yếu chứa "Thuốc", nên các chất độc công nghiệp bị thiếu hoặc gán nhãn 0 (An toàn).
 # Ta ép mô hình phải học các chất kịch độc này (gán CT_TOX = 1.0) để nó không bị "ngây thơ"
 known_poisons = [
-    'C#N', 'c1ccccc1O', 'C1=CC=C(C=C1)O', # Cyanide, Phenol
+    'C#N', 'Oc1ccccc1', # Cyanide, Phenol (Sử dụng chuẩn SMILES 'Oc1ccccc1' có trong bộ dữ liệu)
     'C(C(=O)O)NCP(=O)(O)O', # Glyphosate (Thuốc diệt cỏ)
     'Clc1ccc(C(c2ccc(Cl)cc2)C(Cl)(Cl)Cl)cc1' # DDT (Thuốc trừ sâu kịch độc)
 ]
@@ -51,8 +51,8 @@ known_safe = [
     'CC(=O)Oc1ccccc1C(=O)O', # Aspirin
 ]
 
-# Bổ sung trực tiếp poisons nếu chưa có trong tập dữ liệu
-new_poisons_df = pd.DataFrame({'smiles': ['C(C(=O)O)NCP(=O)(O)O', 'Clc1ccc(C(c2ccc(Cl)cc2)C(Cl)(Cl)Cl)cc1']})
+# Bổ sung trực tiếp TẤT CẢ poisons vào tập dữ liệu (để đảm bảo không bị sót do khác biệt format SMILES)
+new_poisons_df = pd.DataFrame({'smiles': known_poisons})
 for task in tasks:
     new_poisons_df[task] = -1.0 # Mask (-1.0 là dấu hiệu bỏ qua lúc tính Loss, vì ta không có data Tox21 cho các chất này)
 new_poisons_df['CT_TOX'] = 1.0 # Gắn nhãn kịch độc (1.0) cho bài test lâm sàng
@@ -113,7 +113,8 @@ if os.path.exists(weights_path):
     os.remove(weights_path) # Xóa não cũ trước khi train lại
 
 # Bộ tối ưu hóa Adam (giúp mô hình cập nhật kiến thức)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+# Bổ sung L2 Regularization (weight_decay=1e-4) để phạt các trọng số quá lớn, chống Overfitting
+optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
 
 # --- VÒNG LẶP HUẤN LUYỆN ĐA NHIỆM ---
 epochs = 25 # Số vòng lặp huấn luyện (Đủ lớn để đồ thị có đường cong rõ rệt)
@@ -145,6 +146,10 @@ history_train_loss = []
 history_val_loss = []
 history_train_auc = []
 history_val_auc = []
+
+# Khởi tạo biến để theo dõi và thực hiện Early Stopping (Dừng sớm / Lưu model tốt nhất)
+best_val_auc = 0.0
+best_epoch = 0
 
 for epoch in range(epochs):
     # Kích hoạt chế độ Huấn luyện (Bật Dropout)
@@ -206,10 +211,15 @@ for epoch in range(epochs):
     history_val_auc.append(epoch_val_auc)
     
     print(f"Epoch {epoch+1:03d}/{epochs} | Train Loss: {epoch_train_loss:.4f} | Train AUC: {epoch_train_auc:.4f} | Val Loss: {epoch_val_loss:.4f} | Val AUC: {epoch_val_auc:.4f}")
+    
+    # EARLY STOPPING & CHECKPOINTING: Chỉ lưu mô hình khi có kết quả trên tập Validation tốt hơn
+    if epoch_val_auc > best_val_auc:
+        best_val_auc = epoch_val_auc
+        best_epoch = epoch + 1
+        torch.save(model.state_dict(), weights_path)
+        print(f"   => Đã lưu mô hình tốt nhất mới tại Epoch {best_epoch} (Val AUC: {best_val_auc:.4f})")
 
-# Lưu "não bộ" đã được huấn luyện vào file .pt duy nhất
-torch.save(model.state_dict(), weights_path)
-print("\n✅ HOÀN TẤT! Mô hình Đa nhiệm đã sẵn sàng.")
+print(f"\n✅ HOÀN TẤT! Mô hình Đa nhiệm đã sẵn sàng (Đã lưu bản tốt nhất ở Epoch {best_epoch}).")
 
 # --- VẼ ĐỒ THỊ CHUẨN KERAS ---
 # 1. Biểu đồ Loss Curve (Mức độ sai lệch)
