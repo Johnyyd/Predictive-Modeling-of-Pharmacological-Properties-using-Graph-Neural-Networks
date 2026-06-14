@@ -6,6 +6,7 @@ import random
 import os
 import numpy as np
 from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt
 
 from model import PharmaGNN
 from main import smiles_to_graph
@@ -101,15 +102,39 @@ if os.path.exists(weights_path):
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
 # --- VÒNG LẶP HUẤN LUYỆN ĐA NHIỆM ---
-epochs = 10
+epochs = 25 # Tăng lên 25 để đồ thị vẽ ra có dạng cong đẹp hơn
 print(f"\n[2] Bắt đầu học Đa nhiệm (Multi-task) với {len(train_data)} mẫu...")
+
+def compute_mean_auc(preds_list, labels_list):
+    all_preds = np.vstack(preds_list)
+    all_labels = np.vstack(labels_list)
+    valid_auc_scores = []
+    for i in range(13):
+        task_labels = all_labels[:, i]
+        task_preds = all_preds[:, i]
+        valid_idx = task_labels != -1.0
+        if valid_idx.sum() > 0:
+            try:
+                auc = roc_auc_score(task_labels[valid_idx], task_preds[valid_idx])
+                valid_auc_scores.append(auc)
+            except ValueError:
+                pass
+    return np.mean(valid_auc_scores) if valid_auc_scores else 0
+
+history_train_loss = []
+history_val_loss = []
+history_train_auc = []
+history_val_auc = []
 
 for epoch in range(epochs):
     model.train() 
     total_loss = 0
+    train_preds_list = []
+    train_labels_list = []
+    
     for batch in train_loader:
         optimizer.zero_grad()
-        predictions = model(batch) # Xuất ra 12 giá trị
+        predictions = model(batch) # Xuất ra 13 giá trị
         
         # TẠO MẶT NẠ (MASK): Chỉ tính Loss ở những nhãn khác -1.0
         mask = batch.y != -1.0
@@ -121,37 +146,66 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
+        
+        # Lưu kết quả Train để tính AUC
+        train_preds_list.append(torch.sigmoid(predictions.detach()).cpu().numpy())
+        train_labels_list.append(batch.y.cpu().numpy())
 
-    if (epoch + 1) % 5 == 0:
-        model.eval() 
-        all_preds = []
-        all_labels = []
-        
-        with torch.no_grad():
-            for batch in test_loader:
-                preds = torch.sigmoid(model(batch)) # Ép về % khi test
-                all_preds.append(preds.cpu().numpy())
-                all_labels.append(batch.y.cpu().numpy())
-                
-        all_preds = np.vstack(all_preds)
-        all_labels = np.vstack(all_labels)
-        
-        # Tính ROC-AUC trung bình cho cả 13 bài test
-        valid_auc_scores = []
-        for i in range(13):
-            task_labels = all_labels[:, i]
-            task_preds = all_preds[:, i]
-            # Chỉ tính toán trên các điểm dữ liệu không bị khuyết (!= -1)
-            valid_idx = task_labels != -1.0
-            if valid_idx.sum() > 0:
-                try:
-                    auc = roc_auc_score(task_labels[valid_idx], task_preds[valid_idx])
-                    valid_auc_scores.append(auc)
-                except ValueError:
-                    pass
-                    
-        mean_auc = np.mean(valid_auc_scores) if valid_auc_scores else 0
-        print(f"Epoch {epoch+1:03d}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | ROC-AUC (Trung bình 12 Nhãn): {mean_auc:.4f}")
+    epoch_train_loss = total_loss / len(train_loader)
+    epoch_train_auc = compute_mean_auc(train_preds_list, train_labels_list)
+    
+    history_train_loss.append(epoch_train_loss)
+    history_train_auc.append(epoch_train_auc)
+
+    # Đánh giá trên tập Test để lấy Validation Loss và Validation AUC
+    model.eval() 
+    val_total_loss = 0
+    val_preds_list = []
+    val_labels_list = []
+    
+    with torch.no_grad():
+        for batch in test_loader:
+            predictions = model(batch) 
+            mask = batch.y != -1.0
+            pos_weight = torch.tensor([5.0]).to(predictions.device)
+            loss = F.binary_cross_entropy_with_logits(predictions[mask], batch.y[mask], pos_weight=pos_weight)
+            val_total_loss += loss.item()
+            
+            val_preds_list.append(torch.sigmoid(predictions).cpu().numpy())
+            val_labels_list.append(batch.y.cpu().numpy())
+            
+    epoch_val_loss = val_total_loss / len(test_loader)
+    epoch_val_auc = compute_mean_auc(val_preds_list, val_labels_list)
+    
+    history_val_loss.append(epoch_val_loss)
+    history_val_auc.append(epoch_val_auc)
+    
+    print(f"Epoch {epoch+1:03d}/{epochs} | Train Loss: {epoch_train_loss:.4f} | Train AUC: {epoch_train_auc:.4f} | Val Loss: {epoch_val_loss:.4f} | Val AUC: {epoch_val_auc:.4f}")
 
 torch.save(model.state_dict(), weights_path)
 print("\n✅ HOÀN TẤT! Mô hình Đa nhiệm đã sẵn sàng.")
+
+# --- VẼ ĐỒ THỊ CHUẨN KERAS ---
+# 1. Loss Curve
+plt.figure()
+plt.plot(range(epochs), history_train_loss, label='Training loss')
+plt.plot(range(epochs), history_val_loss, label='Validation loss')
+plt.title('GNN Model Loss Progression During Training')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.savefig('loss_curve.png')
+plt.close()
+
+# 2. Accuracy Curve
+plt.figure()
+plt.plot(range(epochs), history_train_auc, label='Training accuracy')
+plt.plot(range(epochs), history_val_auc, label='Validation accuracy')
+plt.title('GNN Model Accuracy Progression During Training')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.savefig('auc_curve.png')
+plt.close()
+
+print("📊 Đã lưu 2 biểu đồ: loss_curve.png và auc_curve.png với style chuẩn!")

@@ -62,7 +62,7 @@ ai_model.eval()
 class MoleculeRequest(BaseModel):
     smiles: str
 
-# 2. HÀM BÓC TÁCH 6 ĐẶC TRƯNG HÓA HỌC (Đã nâng cấp)
+# 2. HÀM BÓC TÁCH 6 ĐẶC TRƯNG HÓA HỌC
 def get_atom_features(atom):
     return [
         atom.GetAtomicNum(),            
@@ -141,4 +141,4 @@ async def predict_molecule(request: MoleculeRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=7077)

@@ -16,7 +16,7 @@ st.set_page_config(page_title="PharmaGraph AI", page_icon="🧬", layout="wide")
 st.title("🧬 Hệ thống Phân tích Dược phẩm PharmaGraph")
 st.markdown("Dự đoán rủi ro độc tính phân tử bằng GNN kết hợp **Cơ chế Attention học Tương tác Nhóm chức**, dành cho Chuyên viên và Nhà nghiên cứu.")
 
-API_URL = "http://localhost:8000/api/predict"
+API_URL = "http://localhost:7077/api/predict"
 
 # --- GIẢI PHÁP 1: DANH SÁCH MẪU CÓ SẴN (PRESETS) ---
 st.markdown("### 🗂️ Cách 1: Chọn nhanh dược chất từ danh sách mẫu")
