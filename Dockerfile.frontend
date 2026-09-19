@@ -4,16 +4,16 @@ WORKDIR /app
 
 # System dependencies for RDKit
 RUN apt-get update && apt-get install -y \
-    libxrender1 libxext6 \
+    libxrender1 libxext6 libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --default-timeout=1800 \
     "numpy<2" \
     streamlit \
     requests \
     pubchempy \
-    rdkit-pypi \
+    rdkit \
     py3Dmol \
     stmol \
     ipython_genutils \

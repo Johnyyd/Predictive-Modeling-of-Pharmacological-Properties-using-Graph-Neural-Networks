@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     ports:
-      - "8000:8000"
+      - "1234:1234"
     volumes:
       - ./pharma_gnn_weights_universal.pt:/app/pharma_gnn_weights_universal.pt
     environment:
@@ -19,7 +19,7 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - API_URL=http://backend:8000/api/predict
+      - API_URL=http://backend:1234/api/predict
       - PYTHONUNBUFFERED=1
     depends_on:
       - backend

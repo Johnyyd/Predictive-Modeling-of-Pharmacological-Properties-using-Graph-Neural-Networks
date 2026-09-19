@@ -4,7 +4,7 @@ rdkit
 py3Dmol
 stmol
 torch
-torch_geometry
+torch_geometric
 sklearn
 numpy
 pandas
