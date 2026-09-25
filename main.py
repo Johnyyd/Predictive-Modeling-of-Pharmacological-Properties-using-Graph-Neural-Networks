@@ -9,16 +9,16 @@ import os
 import math
 import pubchempy as pcp
 
-# Tự động lấy danh sách 85 hàm đếm nhóm chức từ RDKit
+# Automatically extract 85 RDKit functional group descriptors
 frag_funcs = [func for name, func in Descriptors.descList if name.startswith('fr_')]
 
-# Danh sách cảnh báo độc tính tiên nghiệm (Knowledge-based Toxicophores)
+# Knowledge-based toxicophore alerts
 toxic_smarts = [
     'C#N', # Cyanide
     'P(=O)(O)(O)', # Organophosphates
     'c1ccccc1', # Benzene ring
     'c1ccccc1O', # Phenol
-    '[CX3H1](=O)', # Aldehyde (như Formaldehyde)
+    '[CX3H1](=O)', # Aldehyde (e.g., Formaldehyde)
     '[S]', # Sulfide (H2S, thiols)
     '[Cl,Br,I]c1ccccc1', # Halogenated aromatics (PCB, DDT)
 ]
@@ -34,14 +34,14 @@ def get_toxicophore_density(mol):
         if not matches:
             densities.append(0.0)
         else:
-            # Đếm số nguyên tử độc duy nhất
+            # Count unique toxicophore atoms
             toxic_atoms = set()
             for match in matches:
                 toxic_atoms.update(match)
             densities.append(len(toxic_atoms) / total_atoms)
     return densities
 
-# Compound name mapping for common chemicals (fallback khi PubChem lỗi)
+# Compound name mapping for common chemicals (fallback when PubChem is unavailable)
 COMPOUND_NAME_MAP = {
     'O': 'Water',
     '[Na+].[Cl-]': 'Sodium chloride (NaCl)',
@@ -110,23 +110,23 @@ def get_compound_name(smiles):
     compound_name_cache[smiles] = 'Unknown'
     return 'Unknown'
 
-# Import mô hình GNN
+# Import GNN model architecture
 from model import PharmaGNN
 RDLogger.DisableLog('rdApp.*')
 app = FastAPI(title="PharmaGraph GNN Service")
 
-# 1. KHỞI TẠO NÃO MỚI (Lưu ý: num_node_features đã tăng lên 6)
+# 1. Initialize model architecture (num_node_features = 6)
 ai_model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=13)
 
 weights_path = "pharma_gnn_weights_universal.pt"
 if os.path.exists(weights_path):
     try:
         ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
-        print("[+] Da nap thanh cong trong so huan luyen!")
+        print("[+] Successfully loaded trained model weights.")
     except Exception as e:
-        print(f"[-] Canh bao: Khong the nap trong so (co the do sai lech kien truc). Chi tiet: {e}")
+        print(f"[-] Warning: Could not load model weights: {e}")
 else:
-    print("[-] Chua co file trong so, AI dang dung nao ngau nhien.")
+    print("[-] No weights file detected. Initializing random weights.")
 
 ai_model.eval()
 
@@ -134,13 +134,13 @@ class MoleculeRequest(BaseModel):
     smiles: str
     concentration_molar: float = 1.0 # Default 1.0 Molar
 
-# 2. HÀM BÓC TÁCH 6 ĐẶC TRƯNG HÓA HỌC (Đã nâng cấp)
+# 2. Extract 6 chemical node features
 def get_atom_features(atom):
     return [
         atom.GetAtomicNum(),            
         atom.GetDegree(),               
         int(atom.GetIsAromatic()),      
-        atom.GetImplicitValence(), # Hóa trị ẩn
+        atom.GetImplicitValence(), # Implicit valence
         atom.GetFormalCharge(),         
         atom.GetNumRadicalElectrons()   
     ]
@@ -172,14 +172,14 @@ def smiles_to_graph(smiles_string, concentration_molar=1e-5):
         float(Descriptors.NumRotatableBonds(mol))
     ]
     
-    # Cộng gộp 7 đặc trưng Mật độ Độc tính vào Global Features
+    # Append 7 toxicophore density features to global features
     toxic_densities = get_toxicophore_density(mol)
     global_features.extend(toxic_densities)
     
-    # Trích xuất 85 đặc trưng nhóm chức (Functional Groups)
+    # Extract 85 functional group features
     func_group_features = [float(func(mol)) for func in frag_funcs]
     
-    # Tính pIC50 từ concentration_molar
+    # Compute pIC50 from concentration_molar
     if concentration_molar <= 0:
         pIC50 = 0.0
     else:
@@ -200,9 +200,9 @@ from torch_geometric.explain import Explainer, GNNExplainer
 async def predict_molecule(request: MoleculeRequest):
     graph = smiles_to_graph(request.smiles)
     if graph is None:
-        raise HTTPException(status_code=400, detail="Chuỗi SMILES không hợp lệ")
+        raise HTTPException(status_code=400, detail="Invalid SMILES string")
         
-    # Tính pIC50 từ nồng độ (Molar)
+    # Compute pIC50 from concentration (Molar)
     if request.concentration_molar <= 0:
         pIC50 = 0.0
     else:
@@ -222,25 +222,25 @@ async def predict_molecule(request: MoleculeRequest):
             concentration=concentration_tensor
         )
         
-        # Áp dụng Sigmoid để đưa raw logits về khoảng [0, 1]
+        # Apply Sigmoid to convert raw logits to probabilities in [0, 1]
         probabilities = torch.sigmoid(prediction_tensor)
         
-        # CT_TOX là class index 12 (ClinTox toxicity) - CHỈ báo cáo class này cho toxicity_risk
+        # CT_TOX is class index 12 (ClinTox toxicity) - primary toxicity_risk
         # 13 classes: [NR-AR, NR-AR-LBD, NR-AhR, NR-Aromatase, NR-ER, NR-ER-LBD, 
         #              NR-PPAR-gamma, SR-ARE, SR-ATAD5, SR-HSE, SR-MMP, SR-p53, CT_TOX]
         CT_TOX_IDX = 12
         ct_tox_prob = probabilities[0, CT_TOX_IDX].item()
         toxicity_score = ct_tox_prob * 100
         
-        # Vẫn trả về class có prob cao nhất để tham khảo
+        # Report most probable target class for reference
         max_prob, target_class = torch.max(probabilities, dim=1)
         target_class_idx = target_class.item()
         
-        # Tất cả 13 class probabilities để client hiển thị chi tiết
+        # Full 13 class probabilities for client visualization
         all_probs = probabilities[0].tolist()
         
-    # Giải thích bằng GNNExplainer
-    # Bật gradient cho các features tạm thời (vì GNNExplainer cần backward pass)
+    # Interpretability with GNNExplainer
+    # Enable gradients temporarily for GNNExplainer backward pass
     ai_model.eval()
     explainer = Explainer(
         model=ai_model,
@@ -265,7 +265,7 @@ async def predict_molecule(request: MoleculeRequest):
         concentration=concentration_tensor
     )
     
-    # Lấy trọng số các node (nguyên tử)
+    # Extract atom (node) importance scores
     if explanation.node_mask is not None:
         node_importance = explanation.node_mask.mean(dim=1).tolist()
     else:

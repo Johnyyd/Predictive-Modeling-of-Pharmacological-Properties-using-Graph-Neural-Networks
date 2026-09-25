@@ -19,14 +19,14 @@ class FunctionalGroupInteraction(torch.nn.Module):
         # x shape: [batch_size, num_groups]
         x = x.unsqueeze(-1) # [batch_size, num_groups, 1]
         emb = self.embedding(x) # [batch_size, num_groups, embed_dim]
-        # Tính toán tương tác giữa các gốc chức
+        # Compute functional group cross-attention interactions
         attn_out, _ = self.attention(emb, emb, emb)
-        # Gộp tất cả tương tác lại
+        # Aggregate all interaction representations
         out = attn_out.reshape(x.shape[0], -1)
         return F.relu(self.fc(out))
 
 class PharmaGNN(torch.nn.Module):
-    # num_classes bây giờ sẽ là 13, thêm num_global_features=11 (4 gốc + 7 mật độ độc tính)
+    # num_classes = 13, num_global_features = 11 (4 base descriptors + 7 toxicophore densities)
     def __init__(self, num_node_features, hidden_channels, num_classes=13, num_global_features=11, num_func_groups=85):
         super(PharmaGNN, self).__init__()
         
@@ -38,9 +38,9 @@ class PharmaGNN(torch.nn.Module):
         
         self.fg_interaction = FunctionalGroupInteraction(num_groups=num_func_groups, embed_dim=8)
         
-        # +1 cho đặc trưng nồng độ (concentration - pIC50)
+        # +1 for concentration feature (pIC50)
         self.lin1 = torch.nn.Linear(hidden_channels * 2 + num_global_features + 32 + 1, hidden_channels)
-        # Lớp này sẽ xuất ra 12 giá trị (Logits)
+        # Final projection layer outputs logits for 13 multi-task endpoints
         self.lin2 = torch.nn.Linear(hidden_channels, num_classes)
 
     def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, func_group_features=None, concentration=None):
@@ -50,7 +50,7 @@ class PharmaGNN(torch.nn.Module):
         batch_size = batch.max().item() + 1
             
         if concentration is None:
-            # Nếu không có nồng độ, giả định pIC50 = 0.0 (tương đương 1.0 Molar)
+            # If concentration unspecified, default to pIC50 = 0.0 (equivalent to 1.0 Molar)
             concentration = torch.zeros(batch_size, 1, dtype=torch.float, device=x.device)
             
         if global_features is None:
@@ -70,7 +70,7 @@ class PharmaGNN(torch.nn.Module):
         x_mean = global_mean_pool(x, batch)
         x_max = global_max_pool(x, batch)
         
-        # Học tương tác nhóm chức
+        # Functional group interaction learning
         fg_out = self.fg_interaction(func_group_features)
         
         x = torch.cat([x_mean, x_max, global_features, fg_out, concentration], dim=1) 
@@ -80,6 +80,5 @@ class PharmaGNN(torch.nn.Module):
         x = F.relu(x)
         x = self.lin2(x)
         
-        # CHÚ Ý: Bỏ hàm torch.sigmoid(x) ở đây. 
-        # Chúng ta trả về giá trị thô (Logits) để hàm Loss xử lý các ô dữ liệu bị thiếu (NaN).
+        # NOTE: Return raw logits (no sigmoid) so BCEWithLogitsLoss can handle missing label masks (NaN)
         return x

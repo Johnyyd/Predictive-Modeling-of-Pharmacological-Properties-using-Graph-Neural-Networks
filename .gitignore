@@ -3,7 +3,3 @@
 *.pyc
 main.cpython-*
 model.cpython-*
-/__pycache__
-*.pyc
-__pycache__/main.cpython-314.pyc
-__pycache__/model.cpython-314.pyc
