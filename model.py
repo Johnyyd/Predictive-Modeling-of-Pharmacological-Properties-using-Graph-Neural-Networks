@@ -15,15 +15,18 @@ class FunctionalGroupInteraction(torch.nn.Module):
             torch.nn.Linear(128, 32)
         )
         
-    def forward(self, x):
+    def forward(self, x, return_attention=False):
         # x shape: [batch_size, num_groups]
         x = x.unsqueeze(-1) # [batch_size, num_groups, 1]
         emb = self.embedding(x) # [batch_size, num_groups, embed_dim]
         # Compute functional group cross-attention interactions
-        attn_out, _ = self.attention(emb, emb, emb)
+        attn_out, attn_weights = self.attention(emb, emb, emb)
         # Aggregate all interaction representations
         out = attn_out.reshape(x.shape[0], -1)
-        return F.relu(self.fc(out))
+        res = F.relu(self.fc(out))
+        if return_attention:
+            return res, attn_weights
+        return res
 
 class PharmaGNN(torch.nn.Module):
     # num_classes = 13, num_global_features = 11 (4 base descriptors + 7 toxicophore densities)
@@ -43,7 +46,7 @@ class PharmaGNN(torch.nn.Module):
         # Final projection layer outputs logits for 13 multi-task endpoints
         self.lin2 = torch.nn.Linear(hidden_channels, num_classes)
 
-    def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, func_group_features=None, concentration=None):
+    def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, func_group_features=None, concentration=None, return_attention=False):
         if batch is None:
             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
             
@@ -71,7 +74,10 @@ class PharmaGNN(torch.nn.Module):
         x_max = global_max_pool(x, batch)
         
         # Functional group interaction learning
-        fg_out = self.fg_interaction(func_group_features)
+        if return_attention:
+            fg_out, attn_weights = self.fg_interaction(func_group_features, return_attention=True)
+        else:
+            fg_out = self.fg_interaction(func_group_features)
         
         x = torch.cat([x_mean, x_max, global_features, fg_out, concentration], dim=1) 
         
@@ -81,4 +87,6 @@ class PharmaGNN(torch.nn.Module):
         x = self.lin2(x)
         
         # NOTE: Return raw logits (no sigmoid) so BCEWithLogitsLoss can handle missing label masks (NaN)
+        if return_attention:
+            return x, attn_weights
         return x

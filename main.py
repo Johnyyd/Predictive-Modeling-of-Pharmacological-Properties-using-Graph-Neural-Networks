@@ -9,20 +9,50 @@ import os
 import math
 import pubchempy as pcp
 
-# Automatically extract 85 RDKit functional group descriptors
-frag_funcs = [func for name, func in Descriptors.descList if name.startswith('fr_')]
+# Automatically extract 85 RDKit functional group descriptors and names
+frag_items = [(name.replace('fr_', ''), func) for name, func in Descriptors.descList if name.startswith('fr_')]
+frag_names = [item[0] for item in frag_items]
+frag_funcs = [item[1] for item in frag_items]
 
-# Knowledge-based toxicophore alerts
-toxic_smarts = [
-    'C#N', # Cyanide
-    'P(=O)(O)(O)', # Organophosphates
-    'c1ccccc1', # Benzene ring
-    'c1ccccc1O', # Phenol
-    '[CX3H1](=O)', # Aldehyde (e.g., Formaldehyde)
-    '[S]', # Sulfide (H2S, thiols)
-    '[Cl,Br,I]c1ccccc1', # Halogenated aromatics (PCB, DDT)
+# Knowledge-based toxicophore alerts with descriptions
+TOXICOPHORE_DEFINITIONS = [
+    {
+        "name": "Cyanide / Nitrile group",
+        "smarts": "C#N",
+        "description": "Cyano group known for cellular respiration toxicity and cytochrome c oxidase inhibition."
+    },
+    {
+        "name": "Organophosphate ester",
+        "smarts": "P(=O)(O)(O)",
+        "description": "Potent neurotoxic pharmacophore acting via acetylcholinesterase inhibition."
+    },
+    {
+        "name": "Benzene ring",
+        "smarts": "c1ccccc1",
+        "description": "Aromatic hydrocarbon core linked to metabolic bioactivation and reactive metabolite formation."
+    },
+    {
+        "name": "Phenol moiety",
+        "smarts": "c1ccccc1O",
+        "description": "Hydroxylated aromatic ring capable of quinone/semiquinone redox cycling and mitochondrial uncoupling."
+    },
+    {
+        "name": "Reactive Aldehyde",
+        "smarts": "[CX3H1](=O)",
+        "description": "Electrophilic carbonyl center forming covalent adducts with cellular proteins and DNA."
+    },
+    {
+        "name": "Sulfide / Thiol center",
+        "smarts": "[S]",
+        "description": "Reactive sulfur center susceptible to redox cycling and cellular glutathione depletion."
+    },
+    {
+        "name": "Halogenated aromatic",
+        "smarts": "[Cl,Br,I]c1ccccc1",
+        "description": "Halogenated phenyl ring associated with high lipophilicity, metabolic persistence, and bioaccumulation."
+    },
 ]
-toxic_patterns = [Chem.MolFromSmarts(sm) for sm in toxic_smarts]
+toxic_patterns = [Chem.MolFromSmarts(item["smarts"]) for item in TOXICOPHORE_DEFINITIONS]
 
 def get_toxicophore_density(mol):
     total_atoms = mol.GetNumAtoms()
@@ -40,6 +70,25 @@ def get_toxicophore_density(mol):
                 toxic_atoms.update(match)
             densities.append(len(toxic_atoms) / total_atoms)
     return densities
+
+def analyze_toxicophores(mol):
+    total_atoms = mol.GetNumAtoms()
+    alerts = []
+    for defn, pattern in zip(TOXICOPHORE_DEFINITIONS, toxic_patterns):
+        matches = mol.GetSubstructMatches(pattern)
+        if matches:
+            matched_atoms = set()
+            for match in matches:
+                matched_atoms.update(match)
+            alerts.append({
+                "name": defn["name"],
+                "smarts": defn["smarts"],
+                "description": defn["description"],
+                "count": len(matches),
+                "matched_atom_indices": sorted(list(matched_atoms)),
+                "density": round(len(matched_atoms) / total_atoms, 4) if total_atoms > 0 else 0.0
+            })
+    return alerts
 
 # Compound name mapping for common chemicals (fallback when PubChem is unavailable)
 COMPOUND_NAME_MAP = {
@@ -198,7 +247,11 @@ from torch_geometric.explain import Explainer, GNNExplainer
 
 @app.post("/api/predict")
 async def predict_molecule(request: MoleculeRequest):
-    graph = smiles_to_graph(request.smiles)
+    raw_mol = Chem.MolFromSmiles(request.smiles)
+    if raw_mol is None:
+        raise HTTPException(status_code=400, detail="Invalid SMILES string")
+        
+    graph = smiles_to_graph(request.smiles, request.concentration_molar)
     if graph is None:
         raise HTTPException(status_code=400, detail="Invalid SMILES string")
         
@@ -212,22 +265,21 @@ async def predict_molecule(request: MoleculeRequest):
     graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
     
     with torch.no_grad():
-        prediction_tensor = ai_model(
+        prediction_tensor, attn_weights = ai_model(
             x=graph.x, 
             edge_index=graph.edge_index, 
             edge_attr=graph.edge_attr, 
             batch=graph.batch, 
             global_features=graph.global_features, 
             func_group_features=graph.func_group_features,
-            concentration=concentration_tensor
+            concentration=concentration_tensor,
+            return_attention=True
         )
         
         # Apply Sigmoid to convert raw logits to probabilities in [0, 1]
         probabilities = torch.sigmoid(prediction_tensor)
         
         # CT_TOX is class index 12 (ClinTox toxicity) - primary toxicity_risk
-        # 13 classes: [NR-AR, NR-AR-LBD, NR-AhR, NR-Aromatase, NR-ER, NR-ER-LBD, 
-        #              NR-PPAR-gamma, SR-ARE, SR-ATAD5, SR-HSE, SR-MMP, SR-p53, CT_TOX]
         CT_TOX_IDX = 12
         ct_tox_prob = probabilities[0, CT_TOX_IDX].item()
         toxicity_score = ct_tox_prob * 100
@@ -239,8 +291,77 @@ async def predict_molecule(request: MoleculeRequest):
         # Full 13 class probabilities for client visualization
         all_probs = probabilities[0].tolist()
         
+        # Baseline screening prediction at 10 µM (pIC50 = 5.0) for dosage sensitivity analysis
+        baseline_pic50 = 5.0
+        baseline_conc_tensor = torch.tensor([[baseline_pic50]], dtype=torch.float)
+        baseline_pred = ai_model(
+            x=graph.x,
+            edge_index=graph.edge_index,
+            edge_attr=graph.edge_attr,
+            batch=graph.batch,
+            global_features=graph.global_features,
+            func_group_features=graph.func_group_features,
+            concentration=baseline_conc_tensor
+        )
+        baseline_risk = torch.sigmoid(baseline_pred)[0, CT_TOX_IDX].item() * 100.0
+        delta_risk = toxicity_score - baseline_risk
+        
+    # Extract functional groups present and pairwise cross-attention synergy
+    fg_tensor = graph.func_group_features[0]
+    active_indices = [i for i, cnt in enumerate(fg_tensor) if cnt > 0]
+    functional_groups_present = [
+        {"name": frag_names[i], "count": int(fg_tensor[i].item())}
+        for i in active_indices
+    ]
+    
+    synergy_pairs = []
+    for idx_a, i in enumerate(active_indices):
+        for j in active_indices[idx_a + 1:]:
+            score = (attn_weights[0, i, j].item() + attn_weights[0, j, i].item()) / 2.0
+            synergy_pairs.append({
+                "group_a": frag_names[i],
+                "group_b": frag_names[j],
+                "count_a": int(fg_tensor[i].item()),
+                "count_b": int(fg_tensor[j].item()),
+                "synergy_score": round(float(score), 4),
+                "description": f"Attention coupling between {frag_names[i]} and {frag_names[j]}"
+            })
+    synergy_pairs.sort(key=lambda s: s["synergy_score"], reverse=True)
+    
+    # Analyze knowledge-based toxicophore alerts
+    toxicophore_alerts = analyze_toxicophores(raw_mol)
+    
+    # Assess dosage impact
+    if request.concentration_molar >= 1e-3 and delta_risk > 10.0:
+        dosage_assessment = (
+            f"Elevated concentration ({request.concentration_molar:.2g} M) amplifies predicted toxicity "
+            f"by +{delta_risk:.1f}% compared to standard baseline screening (10 µM)."
+        )
+    elif request.concentration_molar <= 1e-6 and delta_risk < -10.0:
+        dosage_assessment = (
+            f"Sub-micromolar dilution mitigates predicted toxicity by {delta_risk:.1f}% "
+            f"compared to standard baseline screening (10 µM)."
+        )
+    elif baseline_risk >= 50.0:
+        dosage_assessment = (
+            f"Intrinsic baseline toxicity is high ({baseline_risk:.1f}%), indicating intrinsic structural hazard "
+            f"independent of dosage variations (current delta: {delta_risk:+.1f}%)."
+        )
+    else:
+        dosage_assessment = (
+            f"Dosage response remains stable around baseline screening levels (current delta: {delta_risk:+.1f}%)."
+        )
+        
+    dosage_effect = {
+        "user_concentration_molar": request.concentration_molar,
+        "baseline_concentration_molar": 1e-5,
+        "user_toxicity_risk": round(toxicity_score, 2),
+        "baseline_toxicity_risk": round(baseline_risk, 2),
+        "delta_risk": round(delta_risk, 2),
+        "assessment": dosage_assessment
+    }
+        
     # Interpretability with GNNExplainer
-    # Enable gradients temporarily for GNNExplainer backward pass
     ai_model.eval()
     explainer = Explainer(
         model=ai_model,
@@ -270,6 +391,63 @@ async def predict_molecule(request: MoleculeRequest):
         node_importance = explanation.node_mask.mean(dim=1).tolist()
     else:
         node_importance = [0.0] * graph.num_nodes
+        
+    # Identify top contributing atoms (prioritizing heavy atoms)
+    mol_hs = Chem.AddHs(raw_mol)
+    atom_attributions = []
+    for idx, imp in enumerate(node_importance):
+        if idx < mol_hs.GetNumAtoms():
+            symbol = mol_hs.GetAtomWithIdx(idx).GetSymbol()
+            atom_attributions.append({
+                "atom_index": idx,
+                "element": symbol,
+                "importance_score": round(float(imp), 4)
+            })
+    atom_attributions.sort(key=lambda a: a["importance_score"], reverse=True)
+    heavy_atoms = [a for a in atom_attributions if a["element"] != "H"]
+    top_contributing_atoms = heavy_atoms[:5] if heavy_atoms else atom_attributions[:5]
+    
+    # Determine primary driving factor & synthesis
+    if toxicity_score >= 50.0:
+        if toxicophore_alerts:
+            primary_driver = "Intrinsic Structural Alerts & Toxicophores"
+            names_str = ", ".join([a["name"] for a in toxicophore_alerts[:3]])
+            summary_text = f"Predicted toxicity ({toxicity_score:.1f}%) is predominantly driven by structural alerts: {names_str}. "
+            if synergy_pairs and synergy_pairs[0]["synergy_score"] > 0.05:
+                summary_text += f"The GNN attention mechanism detected synergy between {synergy_pairs[0]['group_a']} and {synergy_pairs[0]['group_b']}. "
+            if delta_risk > 10.0:
+                summary_text += f"High concentration ({request.concentration_molar:.2g} M) further amplifies risk by +{delta_risk:.1f}%."
+        elif delta_risk > 15.0:
+            primary_driver = "High Concentration / Dosage Amplification"
+            summary_text = (
+                f"Predicted toxicity ({toxicity_score:.1f}%) is primarily driven by elevated dosage/concentration "
+                f"({request.concentration_molar:.2g} M vs 10 µM screening baseline, +{delta_risk:.1f}% shift)."
+            )
+        elif synergy_pairs:
+            primary_driver = "Functional Group Synergy"
+            top_syn = synergy_pairs[0]
+            summary_text = (
+                f"Predicted toxicity ({toxicity_score:.1f}%) is driven by synergistic interaction between "
+                f"{top_syn['group_a']} and {top_syn['group_b']} (attention coupling: {top_syn['synergy_score']})."
+            )
+        else:
+            primary_driver = "Graph Topology & Electronic Distribution"
+            summary_text = (
+                f"Predicted toxicity ({toxicity_score:.1f}%) is attributed to specific atom connectivity "
+                f"and electron charge distribution across the graph network."
+            )
+    else:
+        primary_driver = "Benign / Safe Molecular Profile"
+        if not toxicophore_alerts:
+            summary_text = (
+                f"Low predicted toxicity risk ({toxicity_score:.1f}%). No high-hazard structural alerts detected, "
+                f"and functional group interactions remain within safe physiological thresholds."
+            )
+        else:
+            summary_text = (
+                f"Low predicted toxicity risk ({toxicity_score:.1f}%) despite minor alerts, "
+                f"counterbalanced by favorable molecular topology and safe baseline profile."
+            )
     
     # Lookup compound name
     compound_name = get_compound_name(request.smiles)
@@ -288,6 +466,15 @@ async def predict_molecule(request: MoleculeRequest):
             "target_class": target_class_idx,
             "ct_tox_class": CT_TOX_IDX,
             "all_class_probs": [f"{p:.4f}" for p in all_probs]
+        },
+        "decision_attribution": {
+            "primary_driver": primary_driver,
+            "summary_text": summary_text.strip(),
+            "toxicophores": toxicophore_alerts,
+            "functional_groups_present": functional_groups_present,
+            "functional_group_synergy": synergy_pairs,
+            "dosage_effect": dosage_effect,
+            "top_contributing_atoms": top_contributing_atoms
         },
         "explanation": {
             "node_importance": node_importance

@@ -3,3 +3,4 @@
 *.pyc
 main.cpython-*
 model.cpython-*
+/docs

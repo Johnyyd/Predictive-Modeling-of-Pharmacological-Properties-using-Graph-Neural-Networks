@@ -350,3 +350,128 @@ if final_smiles:
                     
                 st.progress(int(toxicity_float))
 
+            # --- MODEL DECISION BREAKDOWN & INTERPRETABILITY ---
+            attribution = data.get("decision_attribution")
+            if attribution:
+                st.markdown("---")
+                st.markdown("### 🧠 Model Decision Breakdown (Why this prediction?)")
+                st.caption("Comprehensive pharmacological attribution explaining model reasoning: driving structural alerts, functional group synergy, dosage sensitivity, and atomic saliency.")
+
+                primary_driver = attribution.get("primary_driver", "General Molecular Topology")
+                summary_text = attribution.get("summary_text", "")
+                toxicophores = attribution.get("toxicophores", [])
+                func_groups_present = attribution.get("functional_groups_present", [])
+                synergy_pairs = attribution.get("functional_group_synergy", [])
+                dosage_effect = attribution.get("dosage_effect", {})
+                top_atoms = attribution.get("top_contributing_atoms", [])
+
+                # 1. Primary Driver Callout Card
+                driver_col1, driver_col2 = st.columns([1, 2.2])
+                with driver_col1:
+                    if "Alerts" in primary_driver or "Toxicophore" in primary_driver:
+                        st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}")
+                    elif "Concentration" in primary_driver or "Dosage" in primary_driver:
+                        st.warning(f"**Primary Driving Factor:**\n\n🧪 {primary_driver}")
+                    elif "Synergy" in primary_driver:
+                        st.warning(f"**Primary Driving Factor:**\n\n⚛️ {primary_driver}")
+                    elif "Safe" in primary_driver or "Benign" in primary_driver:
+                        st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}")
+                    else:
+                        st.info(f"**Primary Driving Factor:**\n\nℹ️ {primary_driver}")
+
+                with driver_col2:
+                    st.markdown(f"**Reasoning Summary:**\n\n{summary_text}")
+
+                # 2. Interactive Feature Attribution Tabs
+                tab_alerts, tab_synergy, tab_dosage, tab_atoms = st.tabs([
+                    "🚨 Structural Alerts & Toxicophores",
+                    "⚛️ Functional Group Synergy",
+                    "🧪 Dosage & Concentration Impact",
+                    "🎯 Atomic Attribution"
+                ])
+
+                with tab_alerts:
+                    st.markdown("#### 🚨 Knowledge-Based Structural Toxicophore Alerts")
+                    if toxicophores:
+                        for alert in toxicophores:
+                            st.markdown(f"##### • **{alert['name']}** (`{alert['smarts']}`)")
+                            st.markdown(f"- **Matches in molecule:** {alert['count']} occurrence(s) (Atom indices: `{alert.get('matched_atom_indices', [])}`)")
+                            st.markdown(f"- **Biological Mechanism:** {alert['description']}")
+                            st.markdown("---")
+                    else:
+                        st.success("✅ **No hazardous structural alerts or reactive toxicophore patterns detected.**")
+
+                    st.markdown("#### 🧬 Detected Functional Groups (RDKit)")
+                    if func_groups_present:
+                        cols = st.columns(min(len(func_groups_present), 4))
+                        for idx, fg in enumerate(func_groups_present):
+                            col_target = cols[idx % len(cols)]
+                            col_target.info(f"**{fg['name']}**\nCount: {fg['count']}")
+                    else:
+                        st.caption("No specific fragments from the 85-functional group catalog detected.")
+
+                with tab_synergy:
+                    st.markdown("#### ⚛️ Functional Group Cross-Attention Interactions")
+                    st.caption("Learned cross-attention coupling from the model's `FunctionalGroupInteraction` Multihead Attention layer. High attention coupling indicates synergistic contribution to pharmacological liability.")
+                    
+                    if synergy_pairs:
+                        st.markdown(f"**Top Interacting Pairs ({len(synergy_pairs)} total pairs):**")
+                        for idx, syn in enumerate(synergy_pairs[:6]):
+                            col_s1, col_s2 = st.columns([1.5, 2.5])
+                            with col_s1:
+                                st.markdown(f"**{idx+1}. {syn['group_a']} ↔ {syn['group_b']}**")
+                                st.caption(f"Counts: {syn.get('count_a', 1)} × {syn.get('count_b', 1)}")
+                            with col_s2:
+                                score_val = syn['synergy_score']
+                                st.progress(min(max(score_val * 4.0, 0.05), 1.0))
+                                st.caption(f"Attention Coupling Score: **{score_val:.4f}**")
+                    else:
+                        st.info("Fewer than 2 active functional groups detected in this structure; inter-group cross-attention synergy is not applicable.")
+
+                with tab_dosage:
+                    st.markdown("#### 🧪 Dosage & Concentration Sensitivity")
+                    st.caption("Comparison between user-defined concentration and standard in vitro Tox21/ClinTox screening baseline (10 µM / pIC50 = 5.0).")
+                    
+                    d_col1, d_col2, d_col3 = st.columns(3)
+                    with d_col1:
+                        user_conc = dosage_effect.get("user_concentration_molar", 1.0)
+                        st.metric(
+                            label="User Dosage",
+                            value=f"{user_conc:.2g} M",
+                            help="Input concentration specified for this evaluation"
+                        )
+                        st.caption(f"Predicted Risk: **{dosage_effect.get('user_toxicity_risk', 0.0):.1f}%**")
+                    with d_col2:
+                        st.metric(
+                            label="Baseline Screening",
+                            value="10 µM (1e-5 M)",
+                            help="Standard assay screening concentration (Tox21 / ClinTox)"
+                        )
+                        st.caption(f"Baseline Risk: **{dosage_effect.get('baseline_toxicity_risk', 0.0):.1f}%**")
+                    with d_col3:
+                        delta = dosage_effect.get("delta_risk", 0.0)
+                        st.metric(
+                            label="Dosage Impact (ΔRisk)",
+                            value=f"{delta:+.1f}%",
+                            delta=f"{delta:+.1f}%",
+                            delta_color="inverse" if delta > 0 else "normal"
+                        )
+                    
+                    st.info(f"💡 **Dosage Analysis:** {dosage_effect.get('assessment', '')}")
+
+                with tab_atoms:
+                    st.markdown("#### 🎯 Key Influential Atoms (GNNExplainer)")
+                    st.caption("Top atomic centers contributing most strongly to the GNN prediction. High-saliency atoms correspond to the red sphere highlights in the 3D conformation view above.")
+                    
+                    if top_atoms:
+                        atom_cols = st.columns(min(len(top_atoms), 5))
+                        for idx, atom_info in enumerate(top_atoms):
+                            col_a = atom_cols[idx % len(atom_cols)]
+                            col_a.metric(
+                                label=f"Atom #{atom_info['atom_index']} ({atom_info['element']})",
+                                value=f"{atom_info['importance_score']:.3f}"
+                            )
+                    else:
+                        st.caption("No individual atom saliency highlights available.")
+
+
