@@ -7,4 +7,5 @@ model.cpython-*
 .venv
 .pytest_cache
 *.pt
-!pharma_gnn_*.pt
+!pharma_gnn_weights_universal.pt
+!pharma_gnn_production_state_dict.pt

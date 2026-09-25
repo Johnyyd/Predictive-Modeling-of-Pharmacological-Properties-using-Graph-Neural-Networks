@@ -103,12 +103,14 @@ class PharmaGNN(torch.nn.Module):
 
         # Layer 1
         x = self.conv1(x, edge_index, edge_attr=edge_attr)
-        x = self.bn1(x)
+        if x.size(0) > 1:
+            x = self.bn1(x)
         x = F.leaky_relu(x)
         
         # Layer 2 with residual skip connection if dimensions match
         h = self.conv2(x, edge_index, edge_attr=edge_attr)
-        h = self.bn2(h)
+        if h.size(0) > 1:
+            h = self.bn2(h)
         h = F.leaky_relu(h)
         if self.residual and x.shape == h.shape:
             x = x + h
@@ -118,7 +120,8 @@ class PharmaGNN(torch.nn.Module):
         # Deeper layers (for num_layers > 2)
         for conv, bn in zip(self.extra_convs, self.extra_bns):
             h = conv(x, edge_index, edge_attr=edge_attr)
-            h = bn(h)
+            if h.size(0) > 1:
+                h = bn(h)
             h = F.leaky_relu(h)
             if self.residual and x.shape == h.shape:
                 x = x + h
