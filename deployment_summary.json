@@ -1,0 +1,37 @@
+{
+  "phase": 5,
+  "status": "complete",
+  "model": {
+    "name": "PharmaGNN",
+    "version": "2.0.0",
+    "architecture": "GATv2 + Functional Group Interaction + Concentration",
+    "weights_file": "pharma_gnn_production.pt",
+    "config_file": "model_config.json"
+  },
+  "performance": {
+    "roc_auc": 0.8151,
+    "ece": 0.084,
+    "brier_score": 0.0506,
+    "test_accuracy": 0.889,
+    "calibration_temperature": 0.955
+  },
+  "api": {
+    "endpoints": [
+      "POST /api/predict",
+      "POST /api/predict_batch",
+      "GET /api/health",
+      "GET /api/model_info"
+    ],
+    "port": 1234,
+    "spec_file": "api_spec.json"
+  },
+  "deployment": {
+    "dockerfile": "Dockerfile.production",
+    "monitoring_config": "monitoring_config.json"
+  },
+  "data": {
+    "training_compounds": 7841,
+    "tasks": 13,
+    "curated_test_accuracy": "88.9%"
+  }
+}

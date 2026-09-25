@@ -1,0 +1,436 @@
+#!/usr/bin/env python3
+"""
+Phase 2: Self-Supervised Pretraining on large compound set
+Adds pretraining heads to PharmaGNN and trains on ~100K+ SMILES
+"""
+
+import torch
+import torch.nn.functional as F
+from torch_geometric.nn import GATv2Conv, global_mean_pool, global_max_pool
+from torch_geometric.data import Data
+from torch.nn import BatchNorm1d, Linear
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from rdkit import Chem
+from rdkit.Chem import Descriptors, MolStandardize
+import math
+import sys
+import warnings
+warnings.filterwarnings('ignore')
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from model import PharmaGNN
+from main import smiles_to_graph
+
+# Pretraining tasks
+NUM_ATOM_TYPES = 119  # Periodic table elements
+NUM_BOND_TYPES = 4    # Single, Double, Triple, Aromatic
+NUM_MOTIFS = 85       # RDKit functional groups
+
+class PharmaGNN_Pretrain(PharmaGNN):
+    """PharmaGNN with self-supervised pretraining heads"""
+    
+    def __init__(self, num_node_features=6, hidden_channels=32, num_classes=13, 
+                 num_global_features=11, num_func_groups=85):
+        super().__init__(num_node_features, hidden_channels, num_classes, 
+                         num_global_features, num_func_groups)
+        
+        # Pretraining heads
+        self.atom_pred_head = Linear(hidden_channels, NUM_ATOM_TYPES)
+        self.bond_pred_head = Linear(hidden_channels * 2, NUM_BOND_TYPES)
+        self.motif_head = Linear(hidden_channels, NUM_MOTIFS)
+        
+        # Context prediction head (graph-level)
+        self.context_head = Linear(hidden_channels * 2, hidden_channels)
+        
+    def forward_pretrain(self, x, edge_index, edge_attr, batch, 
+                         global_features, func_group_features, concentration,
+                         masked_atom_indices=None, masked_bond_indices=None):
+        """Forward pass with pretraining outputs"""
+        if batch is None:
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            
+        batch_size = batch.max().item() + 1
+            
+        if concentration is None:
+            concentration = torch.zeros(batch_size, 1, dtype=torch.float, device=x.device)
+            
+        if global_features is None:
+            global_features = torch.zeros(batch_size, 11, dtype=torch.float, device=x.device)
+            
+        if func_group_features is None:
+            func_group_features = torch.zeros(batch_size, 85, dtype=torch.float, device=x.device)
+
+        # GNN encoder
+        x = self.conv1(x, edge_index, edge_attr=edge_attr)
+        x = self.bn1(x)
+        x = F.leaky_relu(x)
+        
+        x = self.conv2(x, edge_index, edge_attr=edge_attr)
+        x = self.bn2(x)
+        x = F.leaky_relu(x)
+        
+        # Node-level representations for atom masking
+        node_repr = x
+        
+        # Graph-level representations
+        x_mean = global_mean_pool(x, batch)
+        x_max = global_max_pool(x, batch)
+        
+        fg_out = self.fg_interaction(func_group_features)
+        
+        graph_repr = torch.cat([x_mean, x_max, global_features, fg_out, concentration], dim=1)
+        
+        # Supervised head (for fine-tuning later)
+        x_sup = F.dropout(graph_repr, p=0.5, training=self.training)
+        x_sup = self.lin1(x_sup)
+        x_sup = F.relu(x_sup)
+        supervised_logits = self.lin2(x_sup)
+        
+        # Pretraining outputs
+        pretrain_outputs = {}
+        
+        # 1. Atom masking prediction
+        if masked_atom_indices is not None and len(masked_atom_indices) > 0:
+            masked_node_repr = node_repr[masked_atom_indices]
+            atom_logits = self.atom_pred_head(masked_node_repr)
+            pretrain_outputs['atom_logits'] = atom_logits
+        
+        # 2. Bond type prediction (for masked edges)
+        if masked_bond_indices is not None and len(masked_bond_indices) > 0:
+            src, dst = edge_index[:, masked_bond_indices]
+            bond_repr = torch.cat([node_repr[src], node_repr[dst]], dim=1)
+            bond_logits = self.bond_pred_head(bond_repr)
+            pretrain_outputs['bond_logits'] = bond_logits
+        
+        # 3. Functional group / motif prediction
+        motif_logits = self.motif_head(x_mean)
+        pretrain_outputs['motif_logits'] = motif_logits
+        
+        # 4. Context prediction (graph representation)
+        context_repr = self.context_head(torch.cat([x_mean, x_max], dim=1))
+        pretrain_outputs['context_repr'] = context_repr
+        
+        return {
+            'supervised_logits': supervised_logits,
+            'pretrain_outputs': pretrain_outputs,
+            'node_repr': node_repr,
+            'graph_repr': graph_repr
+        }
+    
+    def forward(self, x, edge_index, edge_attr=None, batch=None, 
+                global_features=None, func_group_features=None, concentration=None):
+        """Standard forward for fine-tuning"""
+        return super().forward(x, edge_index, edge_attr, batch, 
+                               global_features, func_group_features, concentration)
+
+
+def compute_motif_features(mol):
+    """Compute RDKit functional group counts for a molecule"""
+    frag_funcs = [func for name, func in Descriptors.descList if name.startswith('fr_')]
+    features = []
+    for func in frag_funcs:
+        try:
+            count = func(mol)
+            features.append(float(count))
+        except:
+            features.append(0.0)
+    return features
+
+
+def smiles_to_pretrain_graph(smiles):
+    """Convert SMILES to graph with pretraining targets"""
+    g = smiles_to_graph(smiles, concentration_molar=1e-5)
+    if g is None:
+        return None
+    
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    
+    # Add motif features
+    motif_features = compute_motif_features(mol)
+    g.func_group_features = torch.tensor([motif_features], dtype=torch.float)
+    
+    # Add atom type labels (for masking task)
+    atom_types = []
+    for atom in mol.GetAtoms():
+        atom_types.append(atom.GetAtomicNum())
+    g.atom_types = torch.tensor(atom_types, dtype=torch.long)
+    
+    # Add bond type labels
+    bond_types = []
+    for bond in mol.GetBonds():
+        bt = bond.GetBondType()
+        if bt == Chem.BondType.SINGLE: bond_types.append(0)
+        elif bt == Chem.BondType.DOUBLE: bond_types.append(1)
+        elif bt == Chem.BondType.TRIPLE: bond_types.append(2)
+        elif bt == Chem.BondType.AROMATIC: bond_types.append(3)
+        else: bond_types.append(0)
+    g.bond_types = torch.tensor(bond_types, dtype=torch.long)
+    
+    return g
+
+
+def pretrain_masking(g, mask_rate=0.15):
+    """Apply random masking for atom and bond prediction"""
+    num_nodes = g.num_nodes
+    num_edges = g.num_edges
+    
+    # Ensure atom_types and bond_types match graph dimensions
+    if not hasattr(g, 'atom_types') or g.atom_types.size(0) != num_nodes:
+        # Recreate atom_types from node features if needed
+        # For now, just skip masking if mismatch
+        g.masked_atom_indices = torch.tensor([], dtype=torch.long)
+        g.masked_atom_labels = torch.tensor([], dtype=torch.long)
+        g.masked_bond_indices = torch.tensor([], dtype=torch.long)
+        g.masked_bond_labels = torch.tensor([], dtype=torch.long)
+        return g
+    
+    # Mask atoms
+    num_mask_atoms = max(1, int(num_nodes * mask_rate))
+    perm = torch.randperm(num_nodes)
+    masked_atom_indices = perm[:num_mask_atoms]
+    
+    # Store original atom types for loss
+    g.masked_atom_indices = masked_atom_indices
+    g.masked_atom_labels = g.atom_types[masked_atom_indices].clone()
+    
+    # Mask bonds
+    num_mask_bonds = max(1, int(num_edges * mask_rate))
+    perm = torch.randperm(num_edges)
+    masked_bond_indices = perm[:num_mask_bonds]
+    
+    g.masked_bond_indices = masked_bond_indices
+    g.masked_bond_labels = g.bond_types[masked_bond_indices].clone()
+    
+    return g
+
+
+def pretrain_loss(outputs, g, supervised_labels=None):
+    """Compute combined pretraining loss"""
+    losses = {}
+    
+    # 1. Atom masking loss (CrossEntropy)
+    if 'atom_logits' in outputs['pretrain_outputs']:
+        atom_logits = outputs['pretrain_outputs']['atom_logits']
+        atom_labels = g.masked_atom_labels
+        # Clamp labels to valid range
+        atom_labels = torch.clamp(atom_labels, 0, NUM_ATOM_TYPES - 1)
+        losses['atom'] = F.cross_entropy(atom_logits, atom_labels)
+    
+    # 2. Bond type prediction loss
+    if 'bond_logits' in outputs['pretrain_outputs']:
+        bond_logits = outputs['pretrain_outputs']['bond_logits']
+        bond_labels = g.masked_bond_labels
+        losses['bond'] = F.cross_entropy(bond_logits, bond_labels)
+    
+    # 3. Motif prediction loss (BCE - multi-label)
+    if 'motif_logits' in outputs['pretrain_outputs']:
+        motif_logits = outputs['pretrain_outputs']['motif_logits']
+        motif_targets = g.func_group_features  # [1, 85]
+        # Ensure same shape
+        if motif_logits.shape != motif_targets.shape:
+            motif_logits = motif_logits.view(motif_targets.shape)
+        losses['motif'] = F.binary_cross_entropy_with_logits(motif_logits, motif_targets)
+    
+    # 4. Context prediction loss (MSE - contrastive could be added)
+    if 'context_repr' in outputs['pretrain_outputs']:
+        context_repr = outputs['pretrain_outputs']['context_repr']
+        # Use graph representation as target
+        target_repr = outputs['graph_repr'].detach()
+        losses['context'] = F.mse_loss(context_repr, target_repr)
+    
+    # 5. Supervised loss (if labels available)
+    if supervised_labels is not None:
+        sup_logits = outputs['supervised_logits']
+        # Handle NaN labels (multi-task masking)
+        mask = ~torch.isnan(supervised_labels)
+        if mask.any():
+            losses['supervised'] = F.binary_cross_entropy_with_logits(
+                sup_logits[mask], supervised_labels[mask])
+    
+    # Weighted sum
+    weights = {'atom': 1.0, 'bond': 1.0, 'motif': 0.5, 'context': 0.5, 'supervised': 2.0}
+    total_loss = sum(weights.get(k, 1.0) * v for k, v in losses.items())
+    
+    return total_loss, losses
+
+
+def load_pretrain_smiles(limit=None):
+    """Load SMILES for pretraining from multiple sources"""
+    all_smiles = []
+    
+    # 1. From existing master dataset
+    master = pd.read_csv('data/processed/master_toxicity_dataset_expanded.csv')
+    master_smiles = master['smiles'].dropna().unique().tolist()
+    all_smiles.extend(master_smiles)
+    print(f"Master dataset: {len(master_smiles)} SMILES")
+    
+    # 2. Add more from Tox21/ClinTox raw (deduplicated)
+    tox21 = pd.read_csv("https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/tox21.csv.gz", compression='gzip')
+    tox21_smiles = tox21['smiles'].unique().tolist()
+    all_smiles.extend(tox21_smiles)
+    print(f"Tox21: {len(tox21_smiles)} SMILES")
+    
+    clintox = pd.read_csv("https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/clintox.csv.gz", compression='gzip')
+    clintox_smiles = clintox['smiles'].unique().tolist()
+    all_smiles.extend(clintox_smiles)
+    print(f"ClinTox: {len(clintox_smiles)} SMILES")
+    
+    # Deduplicate
+    all_smiles = list(set(all_smiles))
+    print(f"Total unique SMILES: {len(all_smiles)}")
+    
+    if limit:
+        all_smiles = all_smiles[:limit]
+    
+    return all_smiles
+
+
+def build_pretrain_graphs(smiles_list, batch_size=32):
+    """Build graph dataset for pretraining"""
+    graphs = []
+    for smiles in smiles_list:
+        g = smiles_to_pretrain_graph(smiles)
+        if g is not None:
+            graphs.append(g)
+        if len(graphs) % 1000 == 0:
+            print(f"  Built {len(graphs)} graphs...")
+    print(f"Total valid graphs: {len(graphs)}")
+    return graphs
+
+
+def main():
+    print("=" * 70)
+    print("Phase 2: Self-Supervised Pretraining")
+    print("=" * 70)
+    
+    # Load SMILES
+    print("\n[1] Loading SMILES for pretraining...")
+    smiles_list = load_pretrain_smiles(limit=50000)  # Start with 50K
+    
+    # Build graphs
+    print("\n[2] Building graph dataset...")
+    graphs = build_pretrain_graphs(smiles_list)
+    
+    if len(graphs) < 100:
+        print("Not enough valid graphs!")
+        return
+    
+    # Shuffle and split
+    np.random.seed(42)
+    indices = np.random.permutation(len(graphs))
+    train_split = int(0.9 * len(graphs))
+    train_indices = indices[:train_split]
+    val_indices = indices[train_split:]
+    
+    train_graphs = [graphs[i] for i in train_indices]
+    val_graphs = [graphs[i] for i in val_indices]
+    
+    print(f"Train: {len(train_graphs)}, Val: {len(val_graphs)}")
+    
+    # Initialize model
+    print("\n[3] Initializing model...")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+    
+    model = PharmaGNN_Pretrain(
+        num_node_features=6,
+        hidden_channels=32,
+        num_classes=13,
+        num_global_features=11,
+        num_func_groups=85
+    ).to(device)
+    
+    # Load existing supervised weights if available
+    weights_path = 'pharma_gnn_weights_universal.pt'
+    if Path(weights_path).exists():
+        print(f"Loading supervised weights from {weights_path}")
+        state_dict = torch.load(weights_path, map_location=device)
+        # Load only matching keys (encoder part)
+        model_dict = model.state_dict()
+        pretrained_dict = {k: v for k, v in state_dict.items() if k in model_dict and 'pred_head' not in k and 'motif_head' not in k and 'context_head' not in k}
+        model_dict.update(pretrained_dict)
+        model.load_state_dict(model_dict)
+        print("✓ Loaded pretrained encoder weights")
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
+    
+    # Training loop
+    print("\n[4] Starting pretraining...")
+    epochs = 50
+    best_val_loss = float('inf')
+    
+    for epoch in range(epochs):
+        model.train()
+        train_losses = []
+        
+        # Train batches
+        for i in range(0, len(train_graphs), 32):
+            batch_graphs = train_graphs[i:i+32]
+            
+            # Combine into single batch (simple approach - could use DataLoader)
+            # For simplicity, process one by one and average loss
+            batch_loss = 0
+            for g in batch_graphs:
+                g = g.to(device)
+                g = pretrain_masking(g)
+                
+                optimizer.zero_grad()
+                outputs = model.forward_pretrain(
+                    g.x, g.edge_index, g.edge_attr, g.batch,
+                    g.global_features, g.func_group_features, g.concentration,
+                    g.masked_atom_indices, g.masked_bond_indices
+                )
+                
+                # No supervised labels for pretraining
+                loss, loss_dict = pretrain_loss(outputs, g)
+                loss.backward()
+                batch_loss += loss.item()
+            
+            optimizer.step()
+            train_losses.append(batch_loss / len(batch_graphs))
+        
+        # Validation
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for g in val_graphs[:50]:  # Sample validation
+                g = g.to(device)
+                g = pretrain_masking(g)
+                outputs = model.forward_pretrain(
+                    g.x, g.edge_index, g.edge_attr, g.batch,
+                    g.global_features, g.func_group_features, g.concentration,
+                    g.masked_atom_indices, g.masked_bond_indices
+                )
+                loss, _ = pretrain_loss(outputs, g)
+                val_losses.append(loss.item())
+        
+        avg_train = np.mean(train_losses) if train_losses else 0
+        avg_val = np.mean(val_losses) if val_losses else 0
+        
+        print(f"Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f}")
+        
+        if avg_val < best_val_loss:
+            best_val_loss = avg_val
+            # Save only encoder weights for fine-tuning
+            encoder_state = {k: v for k, v in model.state_dict().items() 
+                           if 'pred_head' not in k and 'motif_head' not in k and 'context_head' not in k}
+            torch.save(encoder_state, 'pharma_gnn_pretrained_encoder.pt')
+            print(f"  ✓ Saved best encoder (val_loss={avg_val:.4f})")
+        
+        scheduler.step()
+    
+    print("\n" + "=" * 70)
+    print("Pretraining complete!")
+    print(f"Best val loss: {best_val_loss:.4f}")
+    print("Saved: pharma_gnn_pretrained_encoder.pt")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()

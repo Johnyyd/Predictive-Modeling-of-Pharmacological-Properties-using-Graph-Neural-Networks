@@ -1,0 +1,25 @@
+{
+  "num_node_features": 6,
+  "hidden_channels": 32,
+  "num_classes": 13,
+  "num_global_features": 11,
+  "num_func_groups": 85,
+  "tasks": [
+    "NR-AR",
+    "NR-AR-LBD",
+    "NR-AhR",
+    "NR-Aromatase",
+    "NR-ER",
+    "NR-ER-LBD",
+    "NR-PPAR-gamma",
+    "SR-ARE",
+    "SR-ATAD5",
+    "SR-HSE",
+    "SR-MMP",
+    "SR-p53",
+    "CT_TOX"
+  ],
+  "ct_tox_index": 12,
+  "concentration_feature": true,
+  "calibration_temperature": 0.955
+}

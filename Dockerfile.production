@@ -1,0 +1,29 @@
+# Production Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    libxrender1 libxext6 libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+RUN pip install --no-cache-dir --default-timeout=1800 \
+    "numpy<2" \
+    fastapi uvicorn pydantic \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch_geometric \
+    rdkit \
+    pubchempy
+
+# Copy model and code
+COPY model.py main.py pharma_gnn_production.pt* model_config.json calibration_info.json /app/
+
+EXPOSE 1234
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:1234/api/health || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "1234"]
