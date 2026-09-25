@@ -214,4 +214,4 @@ Every candidate checkpoint must be evaluated against the curated chemical verifi
 3. [x] **Phase 3 (Multi-Task Fine-Tuning)**: Standardized downstream tasks to 13 endpoints (12 Tox21 + CT_TOX). Implemented two-stage fine-tuning (backbone warmup -> discriminative end-to-end training with $pos\_weight=5.0$) (`scripts/phase3_finetune.py`, `tests/test_finetune_smoke.py`).
 4. [x] **Phase 4 (Model Calibration & Chemical Sanity)**: Implemented `TemperatureScaling` module ($T=4.000$) reducing ECE from 0.2040 to 0.0951 and Brier score from 0.2272 to 0.1788. Integrated qualitative chemical sanity check suite testing ATP, Cyanide, Sarin, Phenol, and excipients (`scripts/phase4_calibration.py`, `tests/test_calibration_smoke.py`).
 5. [x] **Phase 5 (Production Deployment & Serving)**: Config-driven hot-reloading architecture in `main.py` driven by `model_config.json`, healthcheck route `/api/health`, and verified FastAPI serving endpoints (`scripts/phase5_deployment.py`, `tests/test_deployment_smoke.py`).
-6. [x] **Full Regression Test Suite**: 32/32 tests passing (100% green).
+6. [x] **Full Regression Test Suite**: 33/33 tests passing (100% green).
