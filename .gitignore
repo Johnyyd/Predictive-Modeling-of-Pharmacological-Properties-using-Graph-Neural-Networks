@@ -4,3 +4,7 @@
 main.cpython-*
 model.cpython-*
 /docs
+.venv
+.pytest_cache
+*.pt
+!pharma_gnn_*.pt

@@ -5,7 +5,7 @@ py3Dmol
 stmol
 torch
 torch_geometric
-sklearn
+scikit-learn
 numpy
 pandas
 matplotlib

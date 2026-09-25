@@ -23,7 +23,7 @@ TOXICOPHORE_DEFINITIONS = [
     },
     {
         "name": "Organophosphate ester",
-        "smarts": "P(=O)(O)(O)",
+        "smarts": "[$([P](=[O,S])[F,Cl]),$([P](=[O,S])C#N),$([P](=[O,S])([#6])S),$([P;!$([P]-[O]-[P])](=[O,S])([O,S][#6])([O,S][#6])([O,S,#6][#6]))]",
         "description": "Potent neurotoxic pharmacophore acting via acetylcholinesterase inhibition."
     },
     {
