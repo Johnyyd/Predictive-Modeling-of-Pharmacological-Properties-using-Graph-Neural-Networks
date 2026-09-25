@@ -3,7 +3,7 @@
   "info": {
     "title": "PharmaGraph GNN API",
     "version": "2.0.0",
-    "description": "Toxicity prediction using Graph Neural Networks"
+    "description": "Enterprise Pharmacological & Toxicological Prediction API"
   },
   "paths": {
     "/api/predict": {
@@ -34,153 +34,17 @@
         },
         "responses": {
           "200": {
-            "description": "Successful prediction",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "smiles": {
-                      "type": "string"
-                    },
-                    "compound_name": {
-                      "type": "string"
-                    },
-                    "concentration_molar": {
-                      "type": "number"
-                    },
-                    "pIC50": {
-                      "type": "number"
-                    },
-                    "graph_info": {
-                      "type": "object"
-                    },
-                    "predictions": {
-                      "type": "object",
-                      "properties": {
-                        "toxicity_risk": {
-                          "type": "string"
-                        },
-                        "target_class": {
-                          "type": "integer"
-                        },
-                        "ct_tox_class": {
-                          "type": "integer"
-                        },
-                        "all_class_probs": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "explanation": {
-                      "type": "object"
-                    },
-                    "status": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/predict_batch": {
-      "post": {
-        "summary": "Predict toxicity for multiple compounds",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "compounds": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "smiles": {
-                          "type": "string"
-                        },
-                        "concentration_molar": {
-                          "type": "number",
-                          "default": 1e-05
-                        }
-                      },
-                      "required": [
-                        "smiles"
-                      ]
-                    }
-                  }
-                },
-                "required": [
-                  "compounds"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Batch predictions",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "results": {
-                      "type": "array"
-                    }
-                  }
-                }
-              }
-            }
+            "description": "Successful prediction with multi-task probabilities and explainability"
           }
         }
       }
     },
     "/api/health": {
       "get": {
-        "summary": "Health check",
+        "summary": "Service health check",
         "responses": {
           "200": {
             "description": "Service healthy"
-          }
-        }
-      }
-    },
-    "/api/model_info": {
-      "get": {
-        "summary": "Model information",
-        "responses": {
-          "200": {
-            "description": "Model metadata",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "model_version": {
-                      "type": "string"
-                    },
-                    "tasks": {
-                      "type": "array"
-                    },
-                    "calibration_temperature": {
-                      "type": "number"
-                    },
-                    "roc_auc": {
-                      "type": "number"
-                    }
-                  }
-                }
-              }
-            }
           }
         }
       }

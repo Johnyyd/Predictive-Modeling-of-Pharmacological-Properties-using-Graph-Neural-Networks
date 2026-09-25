@@ -165,7 +165,30 @@ RDLogger.DisableLog('rdApp.*')
 app = FastAPI(title="PharmaGraph GNN Service")
 
 # 1. Initialize model architecture (num_node_features = 6)
-ai_model = PharmaGNN(num_node_features=6, hidden_channels=32, num_classes=13)
+config_path = "model_config.json"
+model_cfg = {}
+if os.path.exists(config_path):
+    try:
+        with open(config_path, 'r') as f:
+            model_cfg = json.load(f)
+    except Exception:
+        pass
+
+hidden_channels = model_cfg.get('hidden_channels', 32)
+num_layers = model_cfg.get('num_layers', 2)
+heads = model_cfg.get('heads', 2)
+residual = model_cfg.get('residual', num_layers > 2)
+fg_embed_dim = model_cfg.get('fg_embed_dim', 16 if hidden_channels > 32 else 8)
+
+ai_model = PharmaGNN(
+    num_node_features=6, 
+    hidden_channels=hidden_channels, 
+    num_classes=13,
+    num_layers=num_layers,
+    heads=heads,
+    residual=residual,
+    fg_embed_dim=fg_embed_dim
+)
 
 weights_path = "pharma_gnn_weights_universal.pt"
 if os.path.exists(weights_path):
@@ -244,6 +267,11 @@ def smiles_to_graph(smiles_string, concentration_molar=1e-5):
     )
 
 from torch_geometric.explain import Explainer, GNNExplainer
+
+@app.get("/api/health")
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "PharmaGraph GNN Service", "version": "2.0.0"}
 
 @app.post("/api/predict")
 async def predict_molecule(request: MoleculeRequest):

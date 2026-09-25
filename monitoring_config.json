@@ -7,50 +7,29 @@
         50,
         100,
         200,
-        500,
-        1000
-      ],
-      "description": "API prediction latency"
+        500
+      ]
     },
     "prediction_confidence": {
       "type": "histogram",
       "buckets": [
         0.1,
-        0.2,
         0.3,
-        0.4,
         0.5,
-        0.6,
         0.7,
-        0.8,
-        0.9,
-        1.0
-      ],
-      "description": "Model prediction confidence distribution"
+        0.9
+      ]
     },
     "ct_tox_positive_rate": {
-      "type": "counter",
-      "description": "Rate of positive CT_TOX predictions"
+      "type": "counter"
     },
     "input_smiles_validity": {
-      "type": "counter",
-      "description": "Count of valid/invalid SMILES"
-    },
-    "errors_total": {
-      "type": "counter",
-      "description": "Total prediction errors"
+      "type": "counter"
     }
   },
   "alerting": {
     "high_latency_threshold_ms": 500,
     "low_confidence_threshold": 0.5,
-    "error_rate_threshold": 0.05,
-    "drift_detection_window_hours": 24
-  },
-  "logging": {
-    "log_predictions": true,
-    "log_input_smiles": true,
-    "log_latency": true,
-    "retention_days": 30
+    "error_rate_threshold": 0.05
   }
 }

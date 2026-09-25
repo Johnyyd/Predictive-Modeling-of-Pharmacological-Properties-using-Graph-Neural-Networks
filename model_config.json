@@ -4,6 +4,10 @@
   "num_classes": 13,
   "num_global_features": 11,
   "num_func_groups": 85,
+  "num_layers": 2,
+  "heads": 2,
+  "residual": false,
+  "fg_embed_dim": 8,
   "tasks": [
     "NR-AR",
     "NR-AR-LBD",
@@ -21,5 +25,5 @@
   ],
   "ct_tox_index": 12,
   "concentration_feature": true,
-  "calibration_temperature": 0.955
+  "calibration_temperature": 4.0
 }
