@@ -1,8 +1,59 @@
 {
-  "optimal_temperature": 0.9545454545454546,
-  "ece_before": 0.08404119009920832,
-  "ece_after": 0.08403167248641395,
-  "brier_before": 0.05056996545308634,
-  "brier_after": 0.05151240389678468,
-  "auc": 1.0
+  "optimal_temperature": 4.0,
+  "ece_before": 0.20399032854116883,
+  "ece_after": 0.09509354121221705,
+  "brier_before": 0.22722510993480682,
+  "brier_after": 0.17878340423562378,
+  "chemical_sanity_checks": {
+    "ATP": {
+      "prob": 0.5173128247261047,
+      "passed": false,
+      "category": "Endogenous Nucleotide"
+    },
+    "Cyanide": {
+      "prob": 0.8816586136817932,
+      "passed": true,
+      "category": "Metabolic Poison"
+    },
+    "Sarin": {
+      "prob": 0.6292086243629456,
+      "passed": false,
+      "category": "Organophosphate Nerve Agent"
+    },
+    "Water": {
+      "prob": 0.028082402423024178,
+      "passed": true,
+      "category": "Solvent/Excipient"
+    },
+    "Glucose": {
+      "prob": 0.24594230949878693,
+      "passed": false,
+      "category": "Nutrient Metabolite"
+    },
+    "NaCl": {
+      "prob": 0.0008661968167871237,
+      "passed": true,
+      "category": "Mineral Salt"
+    },
+    "Glycine": {
+      "prob": 0.07233379036188126,
+      "passed": true,
+      "category": "Amino Acid"
+    },
+    "Aspirin": {
+      "prob": 0.19240354001522064,
+      "passed": true,
+      "category": "Pharmaceutical (Safe Excipient/Analgesic)"
+    },
+    "Phenol_Dilute": {
+      "prob": 0.47055941820144653,
+      "passed": true,
+      "category": "Phenolic (Dilute)"
+    },
+    "Phenol_Concentrated": {
+      "prob": 0.4446287453174591,
+      "passed": true,
+      "category": "Phenolic (Concentrated Burn Risk)"
+    }
+  }
 }
