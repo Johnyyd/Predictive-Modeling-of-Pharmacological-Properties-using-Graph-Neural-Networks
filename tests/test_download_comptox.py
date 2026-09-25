@@ -58,3 +58,23 @@ def test_extract_gz_utility(tmp_path):
     assert dl.extract_gz(gz_path, tsv_path) is True
     assert tsv_path.exists()
     assert tsv_path.read_bytes() == sample_content
+
+
+def test_download_pretrain_universe_mock(tmp_path):
+    """Verify download_pretrain_universe extracts valid SMILES subset."""
+    out_csv = tmp_path / "mock_pretrain_760k.csv"
+    mock_csv_data = b"smiles\nCCO\nCC(=O)O\nc1ccccc1O\nC#N\n"
+    
+    with patch("scripts.download_comptox.download_file", return_value=True) as mock_dl:
+        def side_effect(url, dest, chunk_size=8192):
+            dest.write_bytes(mock_csv_data)
+            return True
+        mock_dl.side_effect = side_effect
+        
+        success = dl.download_pretrain_universe(dest_path=out_csv, target_count=2)
+        assert success is True
+        assert out_csv.exists()
+        import pandas as pd
+        df = pd.read_csv(out_csv)
+        assert len(df) == 2
+        assert "smiles" in df.columns

@@ -206,18 +206,81 @@ def extract_gz(gz_path: Path, dest_path: Path) -> bool:
         return False
 
 
+PRETRAIN_UNIVERSE_URLS = [
+    "https://huggingface.co/datasets/antoinebcx/smiles-molecules-chembl/resolve/main/train.csv",
+    "https://huggingface.co/datasets/roman-bushuiev/MassSpecGym/resolve/main/data/molecules/candidate_pools/MassSpecGym_retrieval_molecules_1M.tsv"
+]
+
+
+def download_pretrain_universe(dest_path: Path = None, target_count: int = 760000) -> bool:
+    """Download 760,000+ chemical substances for self-supervised foundation pretraining."""
+    if dest_path is None:
+        dest_path = DATA_DIR / "pretrain_760k_smiles.csv"
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if dest_path.exists() and dest_path.stat().st_size > 10 * 1024 * 1024:
+        print(f"Pretraining dataset already exists at {dest_path} ({dest_path.stat().st_size / (1024*1024):.1f} MB)")
+        return True
+        
+    print("=" * 70)
+    print(f"Downloading Pretraining Chemical Universe (~{target_count:,} SMILES)...")
+    print("=" * 70)
+    
+    raw_tmp = dest_path.parent / "raw_pretrain_universe_download.tmp"
+    success = False
+    for url in PRETRAIN_UNIVERSE_URLS:
+        print(f"Connecting to chemical snapshot mirror: {url}")
+        if download_file(url, raw_tmp):
+            success = True
+            break
+            
+    if not success or not raw_tmp.exists():
+        print("Failed to download pretraining universe across candidate mirrors.")
+        return False
+        
+    print(f"\nProcessing, deduplicating, and extracting {target_count:,} valid organic SMILES...")
+    import pandas as pd
+    try:
+        if str(raw_tmp).endswith('.tsv'):
+            df = pd.read_csv(raw_tmp, sep='\t')
+        else:
+            df = pd.read_csv(raw_tmp)
+            
+        smiles_col = 'smiles' if 'smiles' in df.columns else df.columns[0]
+        valid_smiles = df[smiles_col].dropna().astype(str).str.strip()
+        valid_smiles = valid_smiles[(valid_smiles.str.len() >= 3) & (valid_smiles.str.len() <= 250)].drop_duplicates()
+        
+        selected_smiles = valid_smiles.iloc[:target_count]
+        out_df = pd.DataFrame({'smiles': selected_smiles})
+        out_df.to_csv(dest_path, index=False)
+        
+        if raw_tmp.exists():
+            try: raw_tmp.unlink()
+            except: pass
+            
+        print(f"✓ Saved {len(out_df):,} SMILES to {dest_path} ({dest_path.stat().st_size / (1024*1024):.1f} MB)")
+        return True
+    except Exception as e:
+        print(f"Error processing pretraining universe: {e}")
+        return False
+
+
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description="Download CompTox Chemicals Dashboard data snapshots")
     parser.add_argument("--source", choices=["zenodo", "huggingface", "epa_ccte", "epa_ftp", "all"], default="zenodo",
                         help="Primary data mirror to prioritize")
     parser.add_argument("--dest-dir", type=str, default=str(DATA_DIR), help="Directory to save downloaded archives")
+    parser.add_argument("--download-760k", action="store_true", help="Download the 760,000 molecule pretraining chemical universe")
     parser.add_argument("--dry-run", action="store_true", help="Resolve URLs and verify reachability without downloading")
     parser.add_argument("--no-extract", action="store_true", help="Skip archive extraction")
     args = parser.parse_args(argv)
 
     dest_dir = Path(args.dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.download_760k:
+        return download_pretrain_universe(dest_path=dest_dir / "pretrain_760k_smiles.csv", target_count=760000)
 
     print("=" * 60)
     print(f"CompTox ETL Downloader (Preferred Source: {args.source})")

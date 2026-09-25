@@ -296,23 +296,36 @@ def pretrain_loss(outputs, g, supervised_labels=None):
 
 
 def load_pretrain_smiles(limit=None):
-    """Load SMILES for pretraining from local master datasets and standard benchmarks."""
+    """Load SMILES for pretraining from 760K universe or local master dataset."""
     all_smiles = []
     
-    # 1. From existing master dataset
-    master_path = Path('data/processed/master_toxicity_dataset_expanded.csv')
-    if master_path.exists():
-        master = pd.read_csv(master_path)
-        master_smiles = master['smiles'].dropna().unique().tolist()
-        all_smiles.extend(master_smiles)
-        print(f"Master dataset: {len(master_smiles)} SMILES")
-    
-    # 2. Add local training dataset fallback
-    train_path = Path('data/processed/training_dataset_v2.csv')
-    if train_path.exists():
-        train_df = pd.read_csv(train_path)
-        train_smiles = train_df['smiles'].dropna().unique().tolist()
-        all_smiles.extend(train_smiles)
+    # 1. Primary: 760K Pretraining Universe
+    universe_path = Path('data/comptox_v3/pretrain_760k_smiles.csv')
+    if universe_path.exists():
+        print(f"Loading pretraining universe from {universe_path}...")
+        try:
+            u_df = pd.read_csv(universe_path)
+            col = 'smiles' if 'smiles' in u_df.columns else u_df.columns[0]
+            u_smiles = u_df[col].dropna().unique().tolist()
+            all_smiles.extend(u_smiles)
+            print(f"Pretraining universe loaded: {len(u_smiles):,} SMILES")
+        except Exception as e:
+            print(f"[-] Warning loading pretraining universe: {e}")
+            
+    # 2. Secondary: From existing master dataset if universe not present
+    if not all_smiles:
+        master_path = Path('data/processed/master_toxicity_dataset_expanded.csv')
+        if master_path.exists():
+            master = pd.read_csv(master_path)
+            master_smiles = master['smiles'].dropna().unique().tolist()
+            all_smiles.extend(master_smiles)
+            print(f"Master dataset: {len(master_smiles)} SMILES")
+        
+        train_path = Path('data/processed/training_dataset_v2.csv')
+        if train_path.exists():
+            train_df = pd.read_csv(train_path)
+            train_smiles = train_df['smiles'].dropna().unique().tolist()
+            all_smiles.extend(train_smiles)
     
     # Deduplicate
     all_smiles = list(dict.fromkeys(all_smiles))
