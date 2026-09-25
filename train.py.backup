@@ -40,40 +40,6 @@ known_safe = [
     'CC(C)C(C(=O)O)N', # Valine
     'CC(=O)Nc1ccc(O)cc1', # Paracetamol
     'CC(=O)Oc1ccccc1C(=O)O', # Aspirin
-    # Additional safe compounds - common salts, sugars, food additives
-    '[Na+].[Cl-]', # Sodium chloride (table salt)
-    '[Na+].[F-]', # Sodium fluoride
-    '[K+].[Cl-]', # Potassium chloride
-    '[Ca+2].[Cl-].[Cl-]', # Calcium chloride
-    '[NH4+].[Cl-]', # Ammonium chloride
-    '[Na+][O-]S(=O)=O', # Sodium sulfate
-    '[Na+][O-]S([O-])=O', # Sodium sulfite
-    'OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@H]1O', # Glucose
-    'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O', # Fructose
-    'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O', # Galactose
-    'CC(=O)O', # Acetic acid (vinegar)
-    'CCC(=O)O', # Propionic acid
-    'CCCC(=O)O', # Butyric acid
-    'CC(O)=O', # Lactic acid
-    'CN1C=NC2=C1C(=O)N(C(=O)N2C)C', # Caffeine
-    'Cn1cnc2c(N=c1ncn2c3N(CH3)CH2CH3)N=C3', # Theophylline
-    'COc1ccc2nc(nc2c1)N', # Adenine
-    'O', # Water
-    'CO', # Methanol
-    'CCO', # Ethanol
-    'CCOCCO', # Ethylene glycol
-    'CCCCO', # Butanol
-    'CC(=O)OCC(=O)O', # Ethyl acetate
-    'CC(=O)O', # Acetic acid (duplicate for emphasis)
-    'CC(=O)OCC(=O)OCC(=O)O', # Triacetin
-    'C1CCOCC1', # Tetrahydrofuran
-    'C1COCCO1', # 1,4-dioxane
-    'CC(=O)NC1=CC=CC=C1', # Acetanilide
-    'CN1C(=O)NC2=NC=NC=C21', # Theophylline variant
-    'OC[C@H]1OP(O)(O)=O[C@@H]2O[C@H](O)[C@@H](O)[C@H]2O', # Glucose-6-phosphate
-    'CC(N)C(=O)O', # Alanine (alternate)
-    'CC[C@H](N)C(=O)O', # Valine (alternate)
-    'CC[C@@H](N)C(=O)O', # Valine (alternate)
 ]
 
 # Bổ sung trực tiếp poisons nếu chưa có trong tập dữ liệu
@@ -97,33 +63,6 @@ new_safe_df['CT_TOX'] = 0.0 # Gắn nhãn an toàn
 df = pd.concat([df, new_safe_df], ignore_index=True)
 
 df.loc[df['smiles'].isin(known_safe), 'CT_TOX'] = 0.0
-
-# Bổ sung thêm các hợp chất an toàn, ăn được, ít độc tính
-# (Dùng để cân bằng với oversampling 100x của các chất độc)
-extra_safe_smiles = [
-    '[Na+].[Cl-]',       # NaCl - đường
-    '[Na+].[F-]',       # NaF
-    '[K+].[Cl-]',       # KCl
-    '[Ca+2].[Cl-].[Cl-]', # CaCl2
-    '[NH4+].[Cl-]',     # NH4Cl
-    '[Na+][O-]S(=O)=O', # Na2SO4
-    '[Na+][O-]S([O-])=O', # Na2SO3
-    'OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@H]1O', # Glucose
-    'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O', # Fructose
-    'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O', # Galactose
-    'CC(=O)O',          # Acetic acid
-    'CCC(=O)O',         # Propionic acid
-    'CCCC(=O)O',        # Butyric acid
-    'CC(O)=O',          # Lactic acid
-    'CN1C=NC2=C1C(=O)N(C(=O)N2C)C', # Caffeine
-    'Cn1cnc2c(N=c1ncn2c3N(CH3)CH2CH3)N=C3', # Theophylline
-]
-new_extra_safe_df = pd.DataFrame({'smiles': extra_safe_smiles})
-for task in tasks:
-    new_extra_safe_df[task] = -1.0
-new_extra_safe_df['CT_TOX'] = 0.0
-df = pd.concat([df, new_extra_safe_df], ignore_index=True)
-df.loc[df['smiles'].isin(extra_safe_smiles), 'CT_TOX'] = 0.0
 
 # Kỹ thuật Oversampling: Phục hồi lại 100 lần để ép mô hình học thuộc các chất cốt lõi 
 # (Vì đã có MLP nên không sợ bị bias nhầm).

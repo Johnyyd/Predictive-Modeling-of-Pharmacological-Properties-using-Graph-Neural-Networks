@@ -37,6 +37,37 @@ selected_preset = st.selectbox("Bấm vào đây để chọn nhanh một chất
 st.markdown("### 🔍 Cách 2: Tìm kiếm bằng Tên thông thường (Tiếng Anh)")
 search_name = st.text_input("Nhập tên thuốc hoặc hóa chất bằng tiếng Anh:", placeholder="Ví dụ: Ibuprofen, Penicillin, Nicotine, Water...")
 
+# Local cache for common compounds to avoid PubChem failures
+COMMON_COMPOUNDS = {
+    'water': 'O',
+    'sugar': 'CC(=O)O',  # glucose - will be overridden
+    'glucose': 'OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@H]1O',
+    'fructose': 'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O',
+    'sucrose': 'OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@H]1O[C@H]2O[C@@H](O)[C@H](O)[C@@H](O)[C@H]2O',
+    'salt': '[Na+].[Cl-]',
+    'sodium chloride': '[Na+].[Cl-]',
+    'nacl': '[Na+].[Cl-]',
+    'ethanol': 'CCO',
+    'alcohol': 'CCO',
+    'methanol': 'CO',
+    'acetic acid': 'CC(=O)O',
+    'vinegar': 'CC(=O)O',
+    'caffeine': 'CN1C=NC2=C1C(=O)N(C(=O)N2C)C',
+    'aspirin': 'CC(=O)Oc1ccccc1C(=O)O',
+    'paracetamol': 'CC(=O)Nc1ccc(O)cc1',
+    'ibuprofen': 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O',
+    'nicotine': 'CN1CCCC1c2cccnc2',
+    'cyanide': 'C#N',
+    'phenol': 'C1=CC=C(C=C1)O',
+    'benzene': 'c1ccccc1',
+    'toluene': 'Cc1ccccc1',
+    'ammonia': 'N',
+    'urea': 'NC(=O)N',
+    'glycine': 'C(C(=O)O)N',
+    'alanine': 'CC(C(=O)O)N',
+    'valine': 'CC(C)C(C(=O)O)N',
+}
+
 # --- GIẢI PHÁP 3: NHẬP TRỰC TIẾP CHUỖI SMILES ---
 st.markdown("### 🧪 Cách 3: Nhập trực tiếp cấu trúc phân tử (Chuỗi SMILES)")
 raw_smiles = st.text_input("Dành cho hóa chất mới tự tổng hợp hoặc không có trong cơ sở dữ liệu:", placeholder="Ví dụ: C1=CC=C(C=C1)O")
@@ -59,26 +90,41 @@ elif raw_smiles:
     final_smiles = raw_smiles.strip()
     st.info(f"🧬 Đang sử dụng cấu trúc SMILES nhập tay: `{final_smiles}`")
 elif search_name:
-    with st.spinner(f"🔍 Đang tìm cấu trúc của '{search_name}' trên kho dữ liệu quốc tế PubChem..."):
-        try:
-            # Tìm kiếm bằng Tên trước
-            compounds = pcp.get_compounds(search_name, 'name')
-            if not compounds:
-                # Nếu không thấy tên, tìm bằng Công thức hóa học
-                compounds = pcp.get_compounds(search_name, 'formula')
+    # Normalize search name
+    search_name_norm = search_name.strip().lower()
+    
+    # First try local cache for common compounds
+    if search_name_norm in COMMON_COMPOUNDS:
+        final_smiles = COMMON_COMPOUNDS[search_name_norm]
+        st.info(f"🧬 Đã tìm thấy trong cache nội bộ: `{final_smiles}` (Tên: {search_name})")
+    else:
+        # Fallback to PubChem
+        with st.spinner(f"🔍 Đang tìm cấu trúc của '{search_name}' trên kho dữ liệu PubChem..."):
+            try:
+                # Try exact name match first
+                compounds = pcp.get_compounds(search_name, 'name')
+                if not compounds:
+                    # Try lowercase
+                    compounds = pcp.get_compounds(search_name.lower(), 'name')
+                if not compounds:
+                    # Try formula search
+                    compounds = pcp.get_compounds(search_name, 'formula')
                 
-            if compounds:
-                # Lấy ra chuỗi SMILES tiêu chuẩn của chất tìm thấy
-                final_smiles = compounds[0].isomeric_smiles
-                st.info(f"🧬 Đã tìm thấy cấu trúc SMILES phù hợp: `{final_smiles}` (Khớp với: {compounds[0].synonyms[0] if compounds[0].synonyms else 'Chất vô danh'})")
-            else:
-                st.error(f"❌ Không tìm thấy chất nào khớp với Tên hoặc Công thức '{search_name}'. Vui lòng kiểm tra lại hoặc chuyển sang Cách 3!")
-        except Exception as e:
-            error_msg = str(e)
-            if "PUGREST.BadRequest" in error_msg:
-                st.error(f"❌ '{search_name}' có thể là một danh mục quá rộng. Vui lòng nhập tên một chất chính xác hơn hoặc dùng Cách 3.")
-            else:
-                st.error(f"Lỗi kết nối mạng hoặc lỗi từ PubChem: {e}")
+                if compounds:
+                    final_smiles = compounds[0].isomeric_smiles
+                    compound_display_name = compounds[0].synonyms[0] if compounds[0].synonyms else compounds[0].iupac_name or search_name
+                    st.info(f"🧬 Đã tìm thấy trên PubChem: `{final_smiles}` (Tên: {compound_display_name})")
+                else:
+                    st.error(f"❌ Không tìm thấy '{search_name}' trong cache hoặc PubChem. Vui lòng thử tên khác hoặc dùng Cách 3 nhập SMILES trực tiếp!")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "bad request" in error_msg or "expecting value" in error_msg or "json decode" in error_msg:
+                    # PubChem error - suggest alternatives
+                    st.error(f"⚠️ PubChem trả về lỗi cho '{search_name}'. Thử với tên tiếng Anh chuẩn hoặc dùng cache nội bộ. Gợi ý: water, ethanol, caffeine, aspirin, paracetamol")
+                elif "timeout" in error_msg or "connection" in error_msg:
+                    st.error(f"⚠️ Mất kết nối PubChem. Thử lại hoặc dùng cache nội bộ.")
+                else:
+                    st.error(f"⚠️ Lỗi tìm kiếm: {e}. Thử lại hoặc dùng SMILES trực tiếp.")
 elif selected_preset and selected_preset != "Chưa chọn...":
     final_smiles = presets[selected_preset]
 
