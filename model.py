@@ -30,21 +30,60 @@ class FunctionalGroupInteraction(torch.nn.Module):
 
 class PharmaGNN(torch.nn.Module):
     # num_classes = 13, num_global_features = 11 (4 base descriptors + 7 toxicophore densities)
-    def __init__(self, num_node_features, hidden_channels, num_classes=13, num_global_features=11, num_func_groups=85):
+    def __init__(
+        self,
+        num_node_features,
+        hidden_channels=32,
+        num_classes=13,
+        num_global_features=11,
+        num_func_groups=85,
+        num_layers=2,
+        heads=2,
+        residual=True,
+        fg_embed_dim=8
+    ):
         super(PharmaGNN, self).__init__()
         
-        self.conv1 = GATv2Conv(num_node_features, hidden_channels, heads=2, edge_dim=1, concat=False)
+        self.num_layers = num_layers
+        self.hidden_channels = hidden_channels
+        self.heads = heads
+        self.residual = residual
+        self.num_classes = num_classes
+        self.num_global_features = num_global_features
+        self.num_func_groups = num_func_groups
+        self.fg_embed_dim = fg_embed_dim
+        
+        # Primary layers (exact names preserved for 100% backward compatibility with legacy weights)
+        self.conv1 = GATv2Conv(num_node_features, hidden_channels, heads=heads, edge_dim=1, concat=False)
         self.bn1 = BatchNorm1d(hidden_channels)
         
-        self.conv2 = GATv2Conv(hidden_channels, hidden_channels, heads=2, edge_dim=1, concat=False)
+        self.conv2 = GATv2Conv(hidden_channels, hidden_channels, heads=heads, edge_dim=1, concat=False)
         self.bn2 = BatchNorm1d(hidden_channels)
         
-        self.fg_interaction = FunctionalGroupInteraction(num_groups=num_func_groups, embed_dim=8)
+        # Additional layers for scaled foundation backbones (e.g. 4-layer PharmaGNN v2)
+        self.extra_convs = torch.nn.ModuleList()
+        self.extra_bns = torch.nn.ModuleList()
+        for _ in range(num_layers - 2):
+            self.extra_convs.append(
+                GATv2Conv(hidden_channels, hidden_channels, heads=heads, edge_dim=1, concat=False)
+            )
+            self.extra_bns.append(BatchNorm1d(hidden_channels))
+        
+        self.fg_interaction = FunctionalGroupInteraction(num_groups=num_func_groups, embed_dim=fg_embed_dim)
         
         # +1 for concentration feature (pIC50)
         self.lin1 = torch.nn.Linear(hidden_channels * 2 + num_global_features + 32 + 1, hidden_channels)
         # Final projection layer outputs logits for 13 multi-task endpoints
         self.lin2 = torch.nn.Linear(hidden_channels, num_classes)
+        
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    torch.nn.init.zeros_(m.bias)
 
     def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, func_group_features=None, concentration=None, return_attention=False):
         if batch is None:
@@ -57,18 +96,34 @@ class PharmaGNN(torch.nn.Module):
             concentration = torch.zeros(batch_size, 1, dtype=torch.float, device=x.device)
             
         if global_features is None:
-            global_features = torch.zeros(batch_size, 11, dtype=torch.float, device=x.device)
+            global_features = torch.zeros(batch_size, self.num_global_features, dtype=torch.float, device=x.device)
             
         if func_group_features is None:
-            func_group_features = torch.zeros(batch_size, 85, dtype=torch.float, device=x.device)
+            func_group_features = torch.zeros(batch_size, self.num_func_groups, dtype=torch.float, device=x.device)
 
+        # Layer 1
         x = self.conv1(x, edge_index, edge_attr=edge_attr)
         x = self.bn1(x)
         x = F.leaky_relu(x)
         
-        x = self.conv2(x, edge_index, edge_attr=edge_attr)
-        x = self.bn2(x)
-        x = F.leaky_relu(x)
+        # Layer 2 with residual skip connection if dimensions match
+        h = self.conv2(x, edge_index, edge_attr=edge_attr)
+        h = self.bn2(h)
+        h = F.leaky_relu(h)
+        if self.residual and x.shape == h.shape:
+            x = x + h
+        else:
+            x = h
+            
+        # Deeper layers (for num_layers > 2)
+        for conv, bn in zip(self.extra_convs, self.extra_bns):
+            h = conv(x, edge_index, edge_attr=edge_attr)
+            h = bn(h)
+            h = F.leaky_relu(h)
+            if self.residual and x.shape == h.shape:
+                x = x + h
+            else:
+                x = h
         
         x_mean = global_mean_pool(x, batch)
         x_max = global_max_pool(x, batch)
