@@ -105,11 +105,11 @@ print(master[['smiles', 'CT_TOX']].head(10).to_string())
 
 # Save metadata
 metadata = {
-    'total_compounds': len(master),
-    'tox21_compounds': len(df_tox21),
-    'clintox_compounds': len(df_clintox),
-    'curated_compounds': len(df_curated),
-    'ct_tox_coverage': master['CT_TOX'].notna().sum(),
+    'total_compounds': int(len(master)),
+    'tox21_compounds': int(len(df_tox21)),
+    'clintox_compounds': int(len(df_clintox)),
+    'curated_compounds': int(len(df_curated)),
+    'ct_tox_coverage': int(master['CT_TOX'].notna().sum()),
     'tasks': tasks + ['CT_TOX', 'FDA_APPROVED']
 }
 

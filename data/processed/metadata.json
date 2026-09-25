@@ -1,6 +1,23 @@
 {
-  "total_compounds": 7828,
+  "total_compounds": 7837,
   "tox21_compounds": 7823,
   "clintox_compounds": 1480,
   "curated_compounds": 14,
-  "ct_tox_coverage": 
+  "ct_tox_coverage": 499,
+  "tasks": [
+    "NR-AR",
+    "NR-AR-LBD",
+    "NR-AhR",
+    "NR-Aromatase",
+    "NR-ER",
+    "NR-ER-LBD",
+    "NR-PPAR-gamma",
+    "SR-ARE",
+    "SR-ATAD5",
+    "SR-HSE",
+    "SR-MMP",
+    "SR-p53",
+    "CT_TOX",
+    "FDA_APPROVED"
+  ]
+}
