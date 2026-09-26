@@ -253,6 +253,32 @@ def pretrain_masking(g, mask_rate=0.15):
     return g
 
 
+def collate_pretrain_batch(graph_list):
+    """Collate a list of individual pretrain graphs into a single unified PyG Batch with global masking indices."""
+    batch_pyg = Batch.from_data_list(graph_list)
+    all_masked_atom_idx = []
+    all_masked_atom_lbl = []
+    all_masked_bond_idx = []
+    all_masked_bond_lbl = []
+    edge_offset = 0
+
+    for i, g in enumerate(graph_list):
+        node_offset = batch_pyg.ptr[i].item()
+        if hasattr(g, "masked_atom_indices") and len(g.masked_atom_indices) > 0:
+            all_masked_atom_idx.append(g.masked_atom_indices + node_offset)
+            all_masked_atom_lbl.append(g.masked_atom_labels)
+        if hasattr(g, "masked_bond_indices") and len(g.masked_bond_indices) > 0:
+            all_masked_bond_idx.append(g.masked_bond_indices + edge_offset)
+            all_masked_bond_lbl.append(g.masked_bond_labels)
+        edge_offset += g.edge_index.size(1)
+
+    batch_pyg.masked_atom_indices = torch.cat(all_masked_atom_idx) if all_masked_atom_idx else torch.tensor([], dtype=torch.long)
+    batch_pyg.masked_atom_labels = torch.cat(all_masked_atom_lbl) if all_masked_atom_lbl else torch.tensor([], dtype=torch.long)
+    batch_pyg.masked_bond_indices = torch.cat(all_masked_bond_idx) if all_masked_bond_idx else torch.tensor([], dtype=torch.long)
+    batch_pyg.masked_bond_labels = torch.cat(all_masked_bond_lbl) if all_masked_bond_lbl else torch.tensor([], dtype=torch.long)
+    return batch_pyg
+
+
 def pretrain_loss(outputs, g, supervised_labels=None):
     """Compute combined pretraining loss across atom, bond, motif, and context tasks."""
     losses = {}
@@ -478,8 +504,16 @@ def main(argv=None):
     parser.add_argument("--log-interval", type=int, default=50, help="Batch logging frequency inside each epoch")
     parser.add_argument("--log-file", type=str, default="logs/phase2_pretrain.log", help="Path to text log file")
     parser.add_argument("--metrics-file", type=str, default="logs/pretrain_metrics.csv", help="Path to CSV metrics file")
+    parser.add_argument("--num-threads", type=int, default=2, help="PyTorch intra-op CPU threads (2 is optimal for Intel Xeon)")
     parser.add_argument("--output-weights", type=str, default="pharma_gnn_pretrained_encoder.pt", help="Path to save pretrained encoder weights")
     args = parser.parse_args(argv)
+
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+        torch.set_num_threads(args.num_threads)
+        torch.set_num_interop_threads(2)
 
     logger = PretrainLogger(log_file=args.log_file, metrics_file=args.metrics_file)
 
@@ -572,29 +606,26 @@ def main(argv=None):
             batch_graphs = train_graphs[i:i+args.batch_size]
             batch_idx += 1
 
-            optimizer.zero_grad()
-            batch_loss = 0.0
-            step_sub_losses = {'atom': 0.0, 'bond': 0.0, 'motif': 0.0, 'context': 0.0}
-
             for g in batch_graphs:
-                g = g.to(device)
-                g = pretrain_masking(g)
-                outputs = model.forward_pretrain(
-                    g.x, g.edge_index, g.edge_attr, g.batch,
-                    g.global_features, g.func_group_features, g.concentration,
-                    g.masked_atom_indices, g.masked_bond_indices
-                )
-                loss, loss_dict = pretrain_loss(outputs, g)
-                (loss / len(batch_graphs)).backward()
-                batch_loss += loss.item()
-                for k in step_sub_losses:
-                    if k in loss_dict:
-                        step_sub_losses[k] += loss_dict[k].item() / len(batch_graphs)
+                pretrain_masking(g)
 
+            collated = collate_pretrain_batch(batch_graphs).to(device)
+
+            optimizer.zero_grad()
+            outputs = model.forward_pretrain(
+                collated.x, collated.edge_index, collated.edge_attr, collated.batch,
+                collated.global_features, collated.func_group_features, collated.concentration,
+                collated.masked_atom_indices, collated.masked_bond_indices
+            )
+            loss, loss_dict = pretrain_loss(outputs, collated)
+            loss.backward()
             optimizer.step()
-            train_losses.append(batch_loss / len(batch_graphs))
+
+            batch_loss = loss.item()
+            train_losses.append(batch_loss)
             for k in running_sub_losses:
-                running_sub_losses[k].append(step_sub_losses[k])
+                if k in loss_dict:
+                    running_sub_losses[k].append(loss_dict[k].item())
 
             # Periodic batch-level progress logging
             if batch_idx % log_interval == 0 or batch_idx == total_batches:
@@ -628,15 +659,15 @@ def main(argv=None):
         with torch.no_grad():
             sample_val = val_graphs[:val_sample_size]
             for g in sample_val:
-                g = g.to(device)
-                g = pretrain_masking(g)
-                outputs = model.forward_pretrain(
-                    g.x, g.edge_index, g.edge_attr, g.batch,
-                    g.global_features, g.func_group_features, g.concentration,
-                    g.masked_atom_indices, g.masked_bond_indices
-                )
-                loss, _ = pretrain_loss(outputs, g)
-                val_losses.append(loss.item())
+                pretrain_masking(g)
+            collated_val = collate_pretrain_batch(sample_val).to(device)
+            outputs = model.forward_pretrain(
+                collated_val.x, collated_val.edge_index, collated_val.edge_attr, collated_val.batch,
+                collated_val.global_features, collated_val.func_group_features, collated_val.concentration,
+                collated_val.masked_atom_indices, collated_val.masked_bond_indices
+            )
+            val_loss, _ = pretrain_loss(outputs, collated_val)
+            val_losses.append(val_loss.item())
 
         val_duration = time.time() - val_t0
         avg_train = np.mean(train_losses) if train_losses else 0.0
