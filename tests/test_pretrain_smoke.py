@@ -89,3 +89,22 @@ def test_pretrain_loss_convergence():
         losses.append(epoch_loss / len(graphs))
         
     assert losses[-1] < losses[0], f"Pretraining loss did not decrease: initial={losses[0]:.4f}, final={losses[-1]:.4f}"
+
+
+def test_pretrain_masking_epoch_independence():
+    """Verify that multiple epochs of masking do not cumulatively zero out graph node features."""
+    g = smiles_to_pretrain_graph("CCO")
+    assert g is not None
+    assert hasattr(g, 'raw_x')
+    initial_nonzero = (g.raw_x != 0).sum().item()
+    assert initial_nonzero > 0
+    
+    # Simulate 25 consecutive training epochs
+    for _ in range(25):
+        g = pretrain_masking(g, mask_rate=0.15)
+        # Verify base features remain completely pristine
+        assert (g.raw_x != 0).sum().item() == initial_nonzero
+        # Verify masked g.x retains unmasked node features (~85%)
+        unmasked_nonzero = (g.x != 0).sum().item()
+        assert unmasked_nonzero >= int(initial_nonzero * 0.70)
+

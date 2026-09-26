@@ -202,6 +202,9 @@ def smiles_to_pretrain_graph(smiles):
         bond_types.extend([b_code, b_code])
     g.bond_types = torch.tensor(bond_types, dtype=torch.long)
     
+    # Store clean unmasked base node features for epoch-independent masking
+    g.raw_x = g.x.clone()
+    
     return g
 
 
@@ -226,9 +229,12 @@ def pretrain_masking(g, mask_rate=0.15):
     g.masked_atom_indices = masked_atom_indices
     g.masked_atom_labels = g.atom_types[masked_atom_indices].clone()
     
-    # Replace masked atom features with mask token (zero vector)
-    g.x = g.x.clone()
-    g.x[masked_atom_indices] = 0.0
+    # Preserve pristine base features and mask a clean copy each epoch
+    if not hasattr(g, 'raw_x'):
+        g.raw_x = g.x.clone()
+    masked_x = g.raw_x.clone()
+    masked_x[masked_atom_indices] = 0.0
+    g.x = masked_x
     
     # Mask bonds
     if num_edges > 0 and hasattr(g, 'bond_types') and g.bond_types.size(0) == num_edges:
@@ -361,6 +367,7 @@ def main(argv=None):
     parser.add_argument("--num-layers", type=int, default=4, help="Number of GATv2 layers (4 for v2 foundation)")
     parser.add_argument("--heads", type=int, default=4, help="Number of GATv2 attention heads")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--patience", type=int, default=7, help="Early stopping patience (epochs without val improvement)")
     parser.add_argument("--output-weights", type=str, default="pharma_gnn_pretrained_encoder.pt", help="Path to save pretrained encoder weights")
     args = parser.parse_args(argv)
 
@@ -420,6 +427,7 @@ def main(argv=None):
     # Training loop
     print(f"\n[4] Starting pretraining ({args.epochs} epochs)...")
     best_val_loss = float('inf')
+    epochs_no_improve = 0
     train_history = []
     
     for epoch in range(args.epochs):
@@ -472,10 +480,16 @@ def main(argv=None):
         
         if avg_val < best_val_loss:
             best_val_loss = avg_val
+            epochs_no_improve = 0
             encoder_state = {k: v for k, v in model.state_dict().items() 
                            if 'pred_head' not in k and 'motif_head' not in k and 'context_head' not in k}
             torch.save(encoder_state, args.output_weights)
             print(f"  ✓ Saved best encoder (val_loss={avg_val:.4f})")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= args.patience:
+                print(f"\n[!] Early stopping triggered: no validation loss improvement for {args.patience} epochs.")
+                break
         
         scheduler.step()
     
