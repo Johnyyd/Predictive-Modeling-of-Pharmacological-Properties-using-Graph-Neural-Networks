@@ -10,3 +10,5 @@ model.cpython-*
 !pharma_gnn_weights_universal.pt
 !pharma_gnn_production_state_dict.pt
 data/comptox_v3/
+logs/
+*.log

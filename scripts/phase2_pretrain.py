@@ -16,6 +16,9 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, MolStandardize
 import math
 import sys
+import time
+import datetime
+import csv
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -343,16 +346,120 @@ def load_pretrain_smiles(limit=None):
     return all_smiles
 
 
-def build_pretrain_graphs(smiles_list, batch_size=32):
-    """Build graph dataset for pretraining."""
+def format_time(seconds: float) -> str:
+    """Format seconds into human-readable duration (e.g. '14.2s', '2m 15s', '1h 04m 20s')."""
+    if seconds is None or seconds < 0:
+        return "0s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    rem_sec = int(seconds % 60)
+    if minutes < 60:
+        return f"{minutes}m {rem_sec:02d}s"
+    hours = int(minutes // 60)
+    rem_min = int(minutes % 60)
+    return f"{hours}h {rem_min:02d}m {rem_sec:02d}s"
+
+
+class PretrainLogger:
+    """Dual console and file logger with structured metrics streaming to CSV."""
+
+    def __init__(self, log_file: str = "logs/phase2_pretrain.log", metrics_file: str = "logs/pretrain_metrics.csv"):
+        self.log_file = Path(log_file) if log_file else None
+        self.metrics_file = Path(metrics_file) if metrics_file else None
+
+        if self.log_file:
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"\n{'='*75}\n[PRETRAINING SESSION START] {ts}\n{'='*75}\n")
+
+        if self.metrics_file:
+            self.metrics_file.parent.mkdir(parents=True, exist_ok=True)
+            if not self.metrics_file.exists() or self.metrics_file.stat().st_size == 0:
+                with open(self.metrics_file, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        "timestamp", "epoch", "train_loss", "val_loss",
+                        "atom_loss", "bond_loss", "motif_loss", "context_loss",
+                        "lr", "epoch_time_sec", "best_val_loss", "is_best"
+                    ])
+
+    def log(self, msg: str = "", to_file: bool = True):
+        """Print to stdout and append to persistent log file."""
+        print(msg, flush=True)
+        if to_file and self.log_file:
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    if msg.strip() == "" or msg.startswith("=") or msg.startswith("-"):
+                        f.write(f"{msg}\n")
+                    else:
+                        f.write(f"[{ts}] {msg}\n")
+            except Exception:
+                pass
+
+    def log_metrics(self, epoch: int, train_loss: float, val_loss: float,
+                    sub_losses: dict, lr: float, epoch_time: float,
+                    best_val_loss: float, is_best: bool):
+        """Append epoch summary metrics to CSV."""
+        if not self.metrics_file:
+            return
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open(self.metrics_file, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    ts,
+                    epoch,
+                    f"{train_loss:.4f}",
+                    f"{val_loss:.4f}",
+                    f"{sub_losses.get('atom', 0.0):.4f}",
+                    f"{sub_losses.get('bond', 0.0):.4f}",
+                    f"{sub_losses.get('motif', 0.0):.4f}",
+                    f"{sub_losses.get('context', 0.0):.4f}",
+                    f"{lr:.6e}",
+                    f"{epoch_time:.2f}",
+                    f"{best_val_loss:.4f}",
+                    int(is_best)
+                ])
+        except Exception:
+            pass
+
+
+def build_pretrain_graphs(smiles_list, batch_size=32, logger=None):
+    """Build graph dataset for pretraining with real-time conversion progress and ETA."""
     graphs = []
-    for smiles in smiles_list:
+    total = len(smiles_list)
+    t0 = time.time()
+    log_fn = logger.log if logger else print
+
+    if total <= 1000:
+        report_step = max(50, total // 5)
+    else:
+        report_step = max(500, min(5000, total // 20))
+
+    log_fn(f"  Converting {total:,} SMILES into PyTorch Geometric graph structures...")
+
+    for idx, smiles in enumerate(smiles_list, 1):
         g = smiles_to_pretrain_graph(smiles)
         if g is not None:
             graphs.append(g)
-        if len(graphs) % 1000 == 0 and len(graphs) > 0:
-            print(f"  Built {len(graphs)} graphs...")
-    print(f"Total valid graphs: {len(graphs)}")
+
+        if idx % report_step == 0 or idx == total:
+            elapsed = time.time() - t0
+            rate = idx / elapsed if elapsed > 0 else 0
+            eta = (total - idx) / rate if rate > 0 else 0
+            pct = (idx / total) * 100
+            log_fn(
+                f"  [Progress] {idx:6,d}/{total:6,d} ({pct:5.1f}%) | "
+                f"Valid: {len(graphs):6,d} | Rate: {rate:6.0f} mol/s | "
+                f"Elapsed: {format_time(elapsed):>8s} | ETA: {format_time(eta):>8s}"
+            )
+
+    total_time = time.time() - t0
+    success_rate = (len(graphs) / total * 100) if total > 0 else 0
+    log_fn(f"  ✓ Built {len(graphs):,}/{total:,} valid graphs in {format_time(total_time)} ({success_rate:.2f}% conversion rate)")
     return graphs
 
 
@@ -368,47 +475,65 @@ def main(argv=None):
     parser.add_argument("--heads", type=int, default=4, help="Number of GATv2 attention heads")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--patience", type=int, default=7, help="Early stopping patience (epochs without val improvement)")
+    parser.add_argument("--log-interval", type=int, default=50, help="Batch logging frequency inside each epoch")
+    parser.add_argument("--log-file", type=str, default="logs/phase2_pretrain.log", help="Path to text log file")
+    parser.add_argument("--metrics-file", type=str, default="logs/pretrain_metrics.csv", help="Path to CSV metrics file")
     parser.add_argument("--output-weights", type=str, default="pharma_gnn_pretrained_encoder.pt", help="Path to save pretrained encoder weights")
     args = parser.parse_args(argv)
 
-    print("=" * 70)
-    print("Phase 2: Self-Supervised Pretraining (PharmaGNN v2 Foundation)")
-    print("=" * 70)
-    
+    logger = PretrainLogger(log_file=args.log_file, metrics_file=args.metrics_file)
+
+    logger.log("=" * 75)
+    logger.log("Phase 2: Self-Supervised Pretraining (PharmaGNN v2 Foundation)")
+    logger.log("=" * 75)
+
     if args.smoke_test:
-        print("[!] Smoke-test mode active: configuring fast verification run")
+        logger.log("[!] Smoke-test mode active: configuring fast verification run")
         args.limit = min(args.limit, 1000)
         args.epochs = min(args.epochs, 3)
+        args.log_interval = max(1, min(args.log_interval, 5))
 
-    # Load SMILES
-    print(f"\n[1] Loading SMILES for pretraining (limit={args.limit})...")
+    total_start_time = time.time()
+
+    # 1. Load SMILES
+    logger.log(f"\n[1] Loading SMILES for pretraining (limit={args.limit:,})...")
     smiles_list = load_pretrain_smiles(limit=args.limit)
-    
-    # Build graphs
-    print("\n[2] Building graph dataset...")
-    graphs = build_pretrain_graphs(smiles_list)
-    
+
+    # 2. Build graphs
+    logger.log(f"\n[2] Building graph dataset from {len(smiles_list):,} compounds...")
+    graphs = build_pretrain_graphs(smiles_list, batch_size=args.batch_size, logger=logger)
+
     if len(graphs) < 10:
-        print("Not enough valid graphs!")
+        logger.log("[-] Error: Not enough valid graphs generated!")
         return False
-    
+
     # Shuffle and split
     np.random.seed(42)
     indices = np.random.permutation(len(graphs))
     train_split = int(0.9 * len(graphs))
     train_indices = indices[:train_split]
     val_indices = indices[train_split:]
-    
+
     train_graphs = [graphs[i] for i in train_indices]
     val_graphs = [graphs[i] for i in val_indices]
-    
-    print(f"Train: {len(train_graphs)}, Val: {len(val_graphs)}")
-    
-    # Initialize model
-    print(f"\n[3] Initializing model (hidden={args.hidden_channels}, layers={args.num_layers}, heads={args.heads})...")
+
+    total_batches = (len(train_graphs) + args.batch_size - 1) // args.batch_size
+    log_interval = max(1, min(args.log_interval, total_batches))
+
+    logger.log(f"\n[Dataset Split] Train graphs: {len(train_graphs):,d} ({total_batches:,d} batches) | Val graphs: {len(val_graphs):,d}")
+
+    # 3. Initialize model
+    logger.log(f"\n[3] Initializing model architecture...")
+    logger.log(f"    • Hidden channels : {args.hidden_channels}")
+    logger.log(f"    • GATv2 layers    : {args.num_layers}")
+    logger.log(f"    • Attention heads : {args.heads}")
+    logger.log(f"    • Residual skips  : Enabled")
+    logger.log(f"    • Learning rate   : {args.lr:.4e}")
+    logger.log(f"    • Early stopping  : {args.patience} epochs patience")
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Device: {device}")
-    
+    logger.log(f"    • Hardware device : {device}")
+
     model = PharmaGNN_Pretrain(
         num_node_features=6,
         hidden_channels=args.hidden_channels,
@@ -420,27 +545,37 @@ def main(argv=None):
         residual=True,
         fg_embed_dim=16 if args.hidden_channels > 32 else 8
     ).to(device)
-    
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.log(f"    • Total parameters: {total_params:,d} ({trainable_params:,d} trainable)")
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    
-    # Training loop
-    print(f"\n[4] Starting pretraining ({args.epochs} epochs)...")
+
+    # 4. Training loop
+    logger.log(f"\n[4] Starting pretraining ({args.epochs} epochs, {total_batches:,d} batches/epoch, logging every {log_interval} batches)...")
     best_val_loss = float('inf')
+    best_epoch = 0
     epochs_no_improve = 0
     train_history = []
-    
+
     for epoch in range(args.epochs):
         model.train()
         train_losses = []
-        
+        running_sub_losses = {'atom': [], 'bond': [], 'motif': [], 'context': []}
+        epoch_start_time = time.time()
+        batch_idx = 0
+
         # Train mini-batches
         for i in range(0, len(train_graphs), args.batch_size):
             batch_graphs = train_graphs[i:i+args.batch_size]
-            
+            batch_idx += 1
+
             optimizer.zero_grad()
             batch_loss = 0.0
-            
+            step_sub_losses = {'atom': 0.0, 'bond': 0.0, 'motif': 0.0, 'context': 0.0}
+
             for g in batch_graphs:
                 g = g.to(device)
                 g = pretrain_masking(g)
@@ -452,15 +587,46 @@ def main(argv=None):
                 loss, loss_dict = pretrain_loss(outputs, g)
                 (loss / len(batch_graphs)).backward()
                 batch_loss += loss.item()
-            
+                for k in step_sub_losses:
+                    if k in loss_dict:
+                        step_sub_losses[k] += loss_dict[k].item() / len(batch_graphs)
+
             optimizer.step()
             train_losses.append(batch_loss / len(batch_graphs))
-        
+            for k in running_sub_losses:
+                running_sub_losses[k].append(step_sub_losses[k])
+
+            # Periodic batch-level progress logging
+            if batch_idx % log_interval == 0 or batch_idx == total_batches:
+                elapsed_epoch = time.time() - epoch_start_time
+                batches_per_sec = batch_idx / elapsed_epoch if elapsed_epoch > 0 else 0
+                graphs_per_sec = (batch_idx * args.batch_size) / elapsed_epoch if elapsed_epoch > 0 else 0
+                eta_epoch = (total_batches - batch_idx) / batches_per_sec if batches_per_sec > 0 else 0
+                pct = (batch_idx / total_batches) * 100
+
+                window = min(len(train_losses), log_interval)
+                cur_loss = np.mean(train_losses[-window:])
+                cur_atom = np.mean(running_sub_losses['atom'][-window:]) if running_sub_losses['atom'] else 0.0
+                cur_bond = np.mean(running_sub_losses['bond'][-window:]) if running_sub_losses['bond'] else 0.0
+                cur_motif = np.mean(running_sub_losses['motif'][-window:]) if running_sub_losses['motif'] else 0.0
+                cur_ctx = np.mean(running_sub_losses['context'][-window:]) if running_sub_losses['context'] else 0.0
+
+                logger.log(
+                    f"  [Epoch {epoch+1:2d}/{args.epochs}] Batch {batch_idx:4d}/{total_batches:4d} ({pct:5.1f}%) | "
+                    f"Loss: {cur_loss:.4f} [Atom: {cur_atom:.3f}, Bond: {cur_bond:.3f}, Motif: {cur_motif:.3f}, Ctx: {cur_ctx:.3f}] | "
+                    f"Speed: {batches_per_sec:.1f} b/s ({graphs_per_sec:.0f} g/s) | "
+                    f"Elapsed: {format_time(elapsed_epoch):>7s} | ETA: {format_time(eta_epoch):>7s}"
+                )
+
         # Validation
         model.eval()
         val_losses = []
+        val_t0 = time.time()
+        val_sample_size = min(len(val_graphs), 50)
+        logger.log(f"  [Epoch {epoch+1:2d}/{args.epochs}] Evaluating {val_sample_size} validation graphs...")
+
         with torch.no_grad():
-            sample_val = val_graphs[:min(len(val_graphs), 50)]
+            sample_val = val_graphs[:val_sample_size]
             for g in sample_val:
                 g = g.to(device)
                 g = pretrain_masking(g)
@@ -471,40 +637,83 @@ def main(argv=None):
                 )
                 loss, _ = pretrain_loss(outputs, g)
                 val_losses.append(loss.item())
-        
-        avg_train = np.mean(train_losses) if train_losses else 0
-        avg_val = np.mean(val_losses) if val_losses else 0
+
+        val_duration = time.time() - val_t0
+        avg_train = np.mean(train_losses) if train_losses else 0.0
+        avg_val = np.mean(val_losses) if val_losses else 0.0
+        epoch_time = time.time() - epoch_start_time
+        total_run_time = time.time() - total_start_time
         train_history.append((avg_train, avg_val))
-        
-        print(f"Epoch {epoch+1:3d}/{args.epochs} | Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f}")
-        
-        if avg_val < best_val_loss:
+
+        cur_lr = optimizer.param_groups[0]['lr']
+        is_best = avg_val < best_val_loss
+
+        epoch_sub = {
+            'atom': np.mean(running_sub_losses['atom']) if running_sub_losses['atom'] else 0.0,
+            'bond': np.mean(running_sub_losses['bond']) if running_sub_losses['bond'] else 0.0,
+            'motif': np.mean(running_sub_losses['motif']) if running_sub_losses['motif'] else 0.0,
+            'context': np.mean(running_sub_losses['context']) if running_sub_losses['context'] else 0.0,
+        }
+
+        # Epoch Summary Banner
+        logger.log("-" * 75)
+        logger.log(
+            f"Epoch {epoch+1:2d}/{args.epochs} Summary [Duration: {format_time(epoch_time)} | Total Run: {format_time(total_run_time)}]\n"
+            f"  • Train Loss : {avg_train:.4f} [Atom: {epoch_sub['atom']:.4f}, Bond: {epoch_sub['bond']:.4f}, Motif: {epoch_sub['motif']:.4f}, Ctx: {epoch_sub['context']:.4f}]\n"
+            f"  • Val Loss   : {avg_val:.4f} (evaluated in {format_time(val_duration)})\n"
+            f"  • LR         : {cur_lr:.4e}"
+        )
+
+        if is_best:
             best_val_loss = avg_val
+            best_epoch = epoch + 1
             epochs_no_improve = 0
             encoder_state = {k: v for k, v in model.state_dict().items() 
                            if 'pred_head' not in k and 'motif_head' not in k and 'context_head' not in k}
             torch.save(encoder_state, args.output_weights)
-            print(f"  ✓ Saved best encoder (val_loss={avg_val:.4f})")
+            logger.log(f"  ★ Checkpoint : New best validation loss ({avg_val:.4f}) -> Saved to {args.output_weights}")
         else:
             epochs_no_improve += 1
+            logger.log(f"  • Patience   : {epochs_no_improve}/{args.patience} epochs without improvement (Best: {best_val_loss:.4f} at Epoch {best_epoch})")
             if epochs_no_improve >= args.patience:
-                print(f"\n[!] Early stopping triggered: no validation loss improvement for {args.patience} epochs.")
+                logger.log(f"\n[!] Early stopping triggered: no validation loss improvement for {args.patience} epochs.")
+                logger.log("-" * 75)
                 break
-        
+
+        logger.log("-" * 75)
+
+        # Stream structured metrics to CSV
+        logger.log_metrics(
+            epoch=epoch+1,
+            train_loss=avg_train,
+            val_loss=avg_val,
+            sub_losses=epoch_sub,
+            lr=cur_lr,
+            epoch_time=epoch_time,
+            best_val_loss=best_val_loss,
+            is_best=is_best
+        )
+
         scheduler.step()
-    
-    print("\n" + "=" * 70)
-    print("Pretraining complete!")
-    print(f"Best val loss: {best_val_loss:.4f}")
-    print(f"Saved: {args.output_weights}")
-    print("=" * 70)
+
+    total_training_duration = time.time() - total_start_time
+
+    logger.log("\n" + "=" * 75)
+    logger.log("Pretraining Completed Successfully!")
+    logger.log(f"  • Total Epochs Run     : {len(train_history)}/{args.epochs}")
+    logger.log(f"  • Best Validation Loss : {best_val_loss:.4f} (Epoch {best_epoch})")
+    logger.log(f"  • Total Training Time  : {format_time(total_training_duration)}")
+    logger.log(f"  • Checkpoint Saved     : {args.output_weights}")
+    logger.log(f"  • Detailed Text Log    : {args.log_file}")
+    logger.log(f"  • CSV Metrics Log      : {args.metrics_file}")
+    logger.log("=" * 75)
 
     if args.smoke_test and len(train_history) >= 2:
         initial_train = train_history[0][0]
         final_train = train_history[-1][0]
         assert final_train <= initial_train, f"Smoke test failed: loss did not decrease ({initial_train:.4f} -> {final_train:.4f})"
-        print(f"✓ Smoke test convergence verified: initial={initial_train:.4f} -> final={final_train:.4f}")
-        
+        logger.log(f"✓ Smoke test convergence verified: initial={initial_train:.4f} -> final={final_train:.4f}")
+
     return True
 
 
