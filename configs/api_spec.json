@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "PharmaGraph GNN API",
+    "version": "2.0.0",
+    "description": "Enterprise Pharmacological & Toxicological Prediction API"
+  },
+  "paths": {
+    "/api/predict": {
+      "post": {
+        "summary": "Predict toxicity for a single compound",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "smiles": {
+                    "type": "string",
+                    "example": "CCO"
+                  },
+                  "concentration_molar": {
+                    "type": "number",
+                    "example": 1e-05
+                  }
+                },
+                "required": [
+                  "smiles"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful prediction with multi-task probabilities and explainability"
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Service health check",
+        "responses": {
+          "200": {
+            "description": "Service healthy"
+          }
+        }
+      }
+    }
+  }
+}

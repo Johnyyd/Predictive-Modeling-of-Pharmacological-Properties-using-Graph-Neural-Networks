@@ -4,8 +4,8 @@ rdkit
 py3Dmol
 stmol
 torch
-torch_geometry
-sklearn
+torch_geometric
+scikit-learn
 numpy
 pandas
 matplotlib

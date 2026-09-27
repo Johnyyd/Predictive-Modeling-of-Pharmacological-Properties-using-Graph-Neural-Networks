@@ -1,2 +1,14 @@
-/__pycache__
+__pycache__/
 .vscode
+*.pyc
+main.cpython-*
+model.cpython-*
+/docs
+.venv
+.pytest_cache
+*.pt
+!pharma_gnn_weights_universal.pt
+!pharma_gnn_production_state_dict.pt
+data/comptox_v3/
+logs/
+*.log

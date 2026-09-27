@@ -1,0 +1,22 @@
+# Production Dockerfile for PharmaGNN v2
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxrender1 libxext6 libexpat1 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY pharma_gnn/ /app/pharma_gnn/
+COPY configs/ /app/configs/
+COPY model.py main.py pharma_gnn_weights_universal.pt* pharma_gnn_production_state_dict.pt* /app/
+
+EXPOSE 1234
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:1234/api/health || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "1234"]
