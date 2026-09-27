@@ -122,8 +122,10 @@ def plot_pretrain_progression(
         }
         for task_key in ["atom", "bond", "motif", "context"]:
             vals = sub_losses.get(task_key)
-            if vals and len(vals) == len(epochs):
-                ax2.plot(epochs, vals, label=labels.get(task_key, task_key), color=colors.get(task_key), linewidth=1.8)
+            if vals:
+                n_pts = min(len(epochs), len(vals))
+                if n_pts > 0:
+                    ax2.plot(epochs[:n_pts], vals[:n_pts], label=labels.get(task_key, task_key), color=colors.get(task_key), linewidth=1.8)
 
     ax2.set_title("Self-Supervised Multi-Task Sub-Loss Breakdown", fontsize=12, fontweight="bold", pad=10)
     ax2.set_xlabel("Epoch", fontsize=11, fontweight="medium")

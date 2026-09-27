@@ -1,57 +1,57 @@
 {
-  "optimal_temperature": 0.6,
-  "ece_before": 0.17758921522360582,
-  "ece_after": 0.16347510594338363,
-  "brier_before": 0.25286275148391724,
-  "brier_after": 0.26307235482732805,
+  "optimal_temperature": 0.5,
+  "ece_before": 0.21103147998038577,
+  "ece_after": 0.14798890011672822,
+  "brier_before": 0.12609662115573883,
+  "brier_after": 0.12519362953545257,
   "chemical_sanity_checks": {
     "ATP": {
-      "prob": 0.6335616111755371,
-      "passed": false,
+      "prob": 0.354026734828949,
+      "passed": true,
       "category": "Endogenous Nucleotide"
     },
     "Cyanide": {
-      "prob": 0.442094087600708,
+      "prob": 0.3011697232723236,
       "passed": true,
       "category": "Metabolic Poison"
     },
     "Sarin": {
-      "prob": 0.41719457507133484,
+      "prob": 0.2109544724225998,
       "passed": true,
       "category": "Organophosphate Nerve Agent"
     },
     "Water": {
-      "prob": 0.4706554114818573,
+      "prob": 0.30451202392578125,
       "passed": false,
       "category": "Solvent/Excipient"
     },
     "Glucose": {
-      "prob": 0.4192799925804138,
-      "passed": false,
+      "prob": 0.13086047768592834,
+      "passed": true,
       "category": "Nutrient Metabolite"
     },
     "NaCl": {
-      "prob": 0.2219391018152237,
+      "prob": 0.1883154958486557,
       "passed": true,
       "category": "Mineral Salt"
     },
     "Glycine": {
-      "prob": 0.42096781730651855,
+      "prob": 0.24877268075942993,
       "passed": true,
       "category": "Amino Acid"
     },
     "Aspirin": {
-      "prob": 0.5160762667655945,
-      "passed": false,
+      "prob": 0.345354288816452,
+      "passed": true,
       "category": "Pharmaceutical (Safe Excipient/Analgesic)"
     },
     "Phenol_Dilute": {
-      "prob": 0.5506348609924316,
-      "passed": false,
+      "prob": 0.5373350381851196,
+      "passed": true,
       "category": "Phenolic (Dilute)"
     },
     "Phenol_Concentrated": {
-      "prob": 0.3483797013759613,
+      "prob": 0.5500863194465637,
       "passed": true,
       "category": "Phenolic (Concentrated Burn Risk)"
     }

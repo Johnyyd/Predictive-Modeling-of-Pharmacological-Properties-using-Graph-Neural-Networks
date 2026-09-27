@@ -4,12 +4,47 @@ Download CompTox Chemicals Dashboard v3.0 data
 Source: https://gaftp.epa.gov/CompTox/CompTox_Chemicals_Dashboard/
 """
 
+import sys
 import os
+from pathlib import Path
+
+# Auto-switch to virtualenv if running in external/system python
+repo_root = Path(__file__).parent.parent.absolute()
+venv_py = repo_root / ".venv" / "bin" / "python"
+if venv_py.exists() and sys.executable != str(venv_py) and not os.environ.get("ANTIGRAV_IN_VENV"):
+    env = os.environ.copy()
+    env["ANTIGRAV_IN_VENV"] = "1"
+    env["VIRTUAL_ENV"] = str(repo_root / ".venv")
+    env["PATH"] = f"{repo_root / '.venv' / 'bin'}:{env.get('PATH', '')}"
+    os.execve(str(venv_py), [str(venv_py)] + sys.argv, env)
+
 import gzip
 import shutil
 import requests
-from pathlib import Path
-from tqdm import tqdm
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    class _DummyTqdm:
+        def __init__(self, iterable=None, total=None, desc=None, unit=None, unit_scale=False, **kwargs):
+            self.iterable = iterable
+            self.total = total
+            self.n = 0
+        def __iter__(self):
+            if self.iterable is not None:
+                for item in self.iterable:
+                    yield item
+        def update(self, n=1):
+            self.n += n
+        def close(self):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    def tqdm(iterable=None, *args, **kwargs):
+        return _DummyTqdm(iterable, *args, **kwargs)
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "comptox_v3"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -27,17 +62,23 @@ FILES = {
 def get_source_registry() -> dict:
     """Return dictionary of available download mirrors and chemical snapshot repositories."""
     return {
+        "huggingface": {
+            "chemicals": "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_ToxCast/resolve/main/toxcast.csv",
+            "assay_results": "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_ToxCast/resolve/main/toxcast.csv",
+            "assay_info": "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_ToxCast/resolve/main/ogb_splits_toxcast.json",
+            "synonyms": "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_ToxCast/resolve/main/README.md",
+        },
+        "deepchem": {
+            "chemicals": "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/toxcast_data.csv.gz",
+            "assay_results": "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/toxcast_data.csv.gz",
+            "assay_info": "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/toxcast_data.csv.gz",
+            "synonyms": "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/toxcast_data.csv.gz",
+        },
         "zenodo": {
             "chemicals": "https://zenodo.org/records/10636207/files/CompTox_Chemicals_v3.0.tsv.gz",
             "assay_results": "https://zenodo.org/records/10636207/files/CompTox_Assay_Results_v3.0.tsv.gz",
             "assay_info": "https://zenodo.org/records/10636207/files/CompTox_Assay_Information_v3.0.tsv.gz",
             "synonyms": "https://zenodo.org/records/10636207/files/CompTox_Synonyms_v3.0.tsv.gz",
-        },
-        "huggingface": {
-            "chemicals": "https://huggingface.co/datasets/lukaskim/ChEMBL-36/resolve/main/comptox_chemicals_v3.0.tsv.gz",
-            "assay_results": "https://huggingface.co/datasets/lukaskim/ChEMBL-36/resolve/main/comptox_assay_results_v3.0.tsv.gz",
-            "assay_info": "https://huggingface.co/datasets/lukaskim/ChEMBL-36/resolve/main/comptox_assay_info_v3.0.tsv.gz",
-            "synonyms": "https://huggingface.co/datasets/lukaskim/ChEMBL-36/resolve/main/comptox_synonyms_v3.0.tsv.gz",
         },
         "epa_ccte": {
             "chemicals": "https://www.epa.gov/sites/default/files/2025-06/compounds_v3.2.tsv.gz",
@@ -53,7 +94,7 @@ def get_source_registry() -> dict:
         }
     }
 
-def resolve_download_urls(file_key: str, preferred_source: str = "zenodo") -> list[str]:
+def resolve_download_urls(file_key: str, preferred_source: str = "huggingface") -> list[str]:
     """Resolve ordered candidate download URLs for a given target file, prioritizing preferred source."""
     registry = get_source_registry()
     sources = list(registry.keys())
@@ -157,10 +198,11 @@ TARGET_ENDPOINTS = {
 def download_with_fallback(urls: list[str], dest: Path, chunk_size: int = 8192) -> bool:
     """Download file attempting candidate mirror URLs in order until one succeeds."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)"}
     for url in urls:
         try:
             print(f"Attempting download from: {url}")
-            response = requests.get(url, stream=True, timeout=30)
+            response = requests.get(url, stream=True, timeout=30, headers=headers)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
@@ -194,11 +236,17 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192) -> bool:
 
 
 def extract_gz(gz_path: Path, dest_path: Path) -> bool:
-    """Extract .gz file."""
+    """Extract .gz file, handling either gzip compressed or plain text downloads."""
     try:
-        with gzip.open(gz_path, 'rb') as f_in:
-            with open(dest_path, 'wb') as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        with open(gz_path, 'rb') as f_test:
+            magic = f_test.read(2)
+        if magic == b'\x1f\x8b':
+            with gzip.open(gz_path, 'rb') as f_in:
+                with open(dest_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+        else:
+            # File was downloaded as uncompressed text (e.g. from raw CSV mirror)
+            shutil.copyfile(gz_path, dest_path)
         print(f"Extracted: {dest_path}")
         return True
     except Exception as e:
@@ -208,7 +256,10 @@ def extract_gz(gz_path: Path, dest_path: Path) -> bool:
 
 PRETRAIN_UNIVERSE_URLS = [
     "https://huggingface.co/datasets/antoinebcx/smiles-molecules-chembl/resolve/main/train.csv",
-    "https://huggingface.co/datasets/roman-bushuiev/MassSpecGym/resolve/main/data/molecules/candidate_pools/MassSpecGym_retrieval_molecules_1M.tsv"
+    "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_PCBA/resolve/main/pcba.csv",
+    "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/pcba.csv.gz",
+    "https://huggingface.co/datasets/scikit-fingerprints/MoleculeNet_ToxCast/resolve/main/toxcast.csv",
+    "https://huggingface.co/datasets/roman-bushuiev/MassSpecGym/resolve/main/data/molecules/candidate_pools/MassSpecGym_retrieval_molecules_1M.tsv",
 ]
 
 
@@ -241,17 +292,27 @@ def download_pretrain_universe(dest_path: Path = None, target_count: int = 76000
     print(f"\nProcessing, deduplicating, and extracting {target_count:,} valid organic SMILES...")
     import pandas as pd
     try:
-        if str(raw_tmp).endswith('.tsv'):
-            df = pd.read_csv(raw_tmp, sep='\t')
-        else:
-            df = pd.read_csv(raw_tmp)
-            
-        smiles_col = 'smiles' if 'smiles' in df.columns else df.columns[0]
-        valid_smiles = df[smiles_col].dropna().astype(str).str.strip()
-        valid_smiles = valid_smiles[(valid_smiles.str.len() >= 3) & (valid_smiles.str.len() <= 250)].drop_duplicates()
+        is_tsv = str(raw_tmp).endswith('.tsv')
+        sep = '\t' if is_tsv else ','
         
-        selected_smiles = valid_smiles.iloc[:target_count]
-        out_df = pd.DataFrame({'smiles': selected_smiles})
+        smiles_collected = []
+        for chunk in pd.read_csv(raw_tmp, sep=sep, chunksize=50000, low_memory=False):
+            col = None
+            for candidate in ['smiles', 'SMILES', 'Smiles']:
+                if candidate in chunk.columns:
+                    col = candidate
+                    break
+            if col is None:
+                col = chunk.columns[0]
+                
+            valid = chunk[col].dropna().astype(str).str.strip()
+            valid = valid[(valid.str.len() >= 3) & (valid.str.len() <= 250) & (~valid.str.isdigit())]
+            smiles_collected.extend(valid.tolist())
+            if len(smiles_collected) >= target_count:
+                break
+                
+        unique_smiles = list(dict.fromkeys(smiles_collected))[:target_count]
+        out_df = pd.DataFrame({'smiles': unique_smiles})
         out_df.to_csv(dest_path, index=False)
         
         if raw_tmp.exists():
@@ -268,7 +329,7 @@ def download_pretrain_universe(dest_path: Path = None, target_count: int = 76000
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description="Download CompTox Chemicals Dashboard data snapshots")
-    parser.add_argument("--source", choices=["zenodo", "huggingface", "epa_ccte", "epa_ftp", "all"], default="zenodo",
+    parser.add_argument("--source", choices=list(get_source_registry().keys()) + ["all"], default="huggingface",
                         help="Primary data mirror to prioritize")
     parser.add_argument("--dest-dir", type=str, default=str(DATA_DIR), help="Directory to save downloaded archives")
     parser.add_argument("--download-760k", action="store_true", help="Download the 760,000 molecule pretraining chemical universe")
@@ -330,6 +391,14 @@ def main(argv=None):
             if not extract_gz(gz_path, tsv_path):
                 print(f"Failed to extract {filename}")
                 return False
+
+    # Ensure foundation pretraining chemical universe is staged
+    universe_path = dest_dir / "pretrain_760k_smiles.csv"
+    if not universe_path.exists():
+        print("\n" + "=" * 60)
+        print("Staging foundation pretraining chemical universe (760k SMILES)...")
+        print("=" * 60)
+        download_pretrain_universe(dest_path=universe_path, target_count=760000)
 
     print("\n" + "=" * 60)
     print("Download and ETL staging complete!")

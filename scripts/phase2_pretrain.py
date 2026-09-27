@@ -697,6 +697,20 @@ def main(argv=None):
             f"  • LR         : {cur_lr:.4e}"
         )
 
+        # Stream structured metrics to CSV & history
+        logger.log_metrics(
+            epoch=epoch+1,
+            train_loss=avg_train,
+            val_loss=avg_val,
+            sub_losses=epoch_sub,
+            lr=cur_lr,
+            epoch_time=epoch_time,
+            best_val_loss=best_val_loss,
+            is_best=is_best
+        )
+        for k in sub_losses_history:
+            sub_losses_history[k].append(epoch_sub.get(k, 0.0))
+
         if is_best:
             best_val_loss = avg_val
             best_epoch = epoch + 1
@@ -714,21 +728,6 @@ def main(argv=None):
                 break
 
         logger.log("-" * 75)
-
-        # Stream structured metrics to CSV
-        logger.log_metrics(
-            epoch=epoch+1,
-            train_loss=avg_train,
-            val_loss=avg_val,
-            sub_losses=epoch_sub,
-            lr=cur_lr,
-            epoch_time=epoch_time,
-            best_val_loss=best_val_loss,
-            is_best=is_best
-        )
-        for k in sub_losses_history:
-            sub_losses_history[k].append(epoch_sub.get(k, 0.0))
-
         scheduler.step()
 
     total_training_duration = time.time() - total_start_time
