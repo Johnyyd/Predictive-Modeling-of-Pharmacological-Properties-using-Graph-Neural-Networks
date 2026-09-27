@@ -7,7 +7,7 @@
     "hidden_channels": 128,
     "num_layers": 4,
     "heads": 4,
-    "calibration_temperature": 4.0,
+    "calibration_temperature": 0.6,
     "config_file": "configs/model_config.json"
   },
   "artifacts": [

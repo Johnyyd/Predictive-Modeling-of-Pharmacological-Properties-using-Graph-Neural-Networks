@@ -9,7 +9,13 @@ import os
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-import matplotlib.pyplot as plt
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
 
 # Verified empirical progression data from Phase 2 Self-Supervised Pretraining (20 epochs)
 BENCHMARK_PRETRAIN_HISTORY = {
@@ -81,6 +87,9 @@ def plot_pretrain_progression(
     Left panel: Total Pretraining Loss (Train vs. Validation).
     Right panel: Multi-Task SSL Sub-Loss Components (Atom, Bond, Motif, Context).
     """
+    if plt is None:
+        raise ImportError("matplotlib is required for plotting curves. Please install matplotlib.")
+
     if epochs is None or train_losses is None:
         epochs = BENCHMARK_PRETRAIN_HISTORY["epochs"]
         train_losses = BENCHMARK_PRETRAIN_HISTORY["train_loss"]
@@ -145,6 +154,9 @@ def plot_finetune_curves(
       1. finetune_loss_curve.png: Loss progression (Cross-entropy with positive weight)
       2. finetune_auc_curve.png:  Multi-task ROC-AUC / Accuracy progression across 13 endpoints
     """
+    if plt is None:
+        raise ImportError("matplotlib is required for plotting curves. Please install matplotlib.")
+
     if epochs is None or train_losses is None:
         epochs = BENCHMARK_FINETUNE_HISTORY["epochs"]
         train_losses = BENCHMARK_FINETUNE_HISTORY["train_loss"]
