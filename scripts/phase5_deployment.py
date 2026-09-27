@@ -28,15 +28,19 @@ TASKS = [
 
 
 def load_calibration_temperature(default_temp: float = 1.0) -> float:
-    """Load optimal temperature from calibration_info.json if available."""
-    cal_path = Path("calibration_info.json")
-    if cal_path.exists():
-        try:
-            with open(cal_path, 'r') as f:
-                data = json.load(f)
-            return float(data.get('optimal_temperature', default_temp))
-        except Exception:
-            pass
+    """Load optimal temperature from configs/calibration_info.json or fallback calibration_info.json."""
+    paths_to_try = [
+        Path("configs/calibration_info.json"),
+        Path("calibration_info.json")
+    ]
+    for cal_path in paths_to_try:
+        if cal_path.exists():
+            try:
+                with open(cal_path, 'r') as f:
+                    data = json.load(f)
+                return float(data.get('optimal_temperature', default_temp))
+            except Exception:
+                pass
     return default_temp
 
 
@@ -75,11 +79,9 @@ def export_model(weights_path: str = "pharma_gnn_weights_universal.pt",
     model.eval()
     
     # Save standard production state_dict
-    prod_state_dict_path = "pharma_gnn_production_state_dict.pt"
+    prod_state_dict_path = "pharma_gnn_test_state_dict.pt" if smoke_test else "pharma_gnn_production_state_dict.pt"
     torch.save(model.state_dict(), prod_state_dict_path)
     print(f"✓ Saved production state dict: {prod_state_dict_path}")
-    
-    # Attempt TorchScript scripting
     print("\n[2] Scripting model for TorchScript export...")
     script_saved = False
     try:
@@ -109,12 +111,16 @@ def export_model(weights_path: str = "pharma_gnn_weights_universal.pt",
         'tasks': TASKS,
         'ct_tox_index': 12,
         'concentration_feature': True,
-        'calibration_temperature': cal_temp
+        'calibration_temperature': cal_temp,
+        'weights_path': prod_state_dict_path if hidden_channels > 32 else 'pharma_gnn_weights_universal.pt'
     }
     
-    with open('model_config.json', 'w') as f:
+    configs_dir = Path("configs")
+    configs_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(configs_dir / 'model_config.json', 'w') as f:
         json.dump(config, f, indent=2)
-    print("✓ Saved model_config.json")
+    print("✓ Saved configs/model_config.json")
     
     # OpenAPI Specification
     api_spec = {
@@ -156,9 +162,9 @@ def export_model(weights_path: str = "pharma_gnn_weights_universal.pt",
             }
         }
     }
-    with open('api_spec.json', 'w') as f:
+    with open(configs_dir / 'api_spec.json', 'w') as f:
         json.dump(api_spec, f, indent=2)
-    print("✓ Saved api_spec.json")
+    print("✓ Saved configs/api_spec.json")
 
     # Monitoring configuration
     monitoring_config = {
@@ -174,9 +180,9 @@ def export_model(weights_path: str = "pharma_gnn_weights_universal.pt",
             "error_rate_threshold": 0.05
         }
     }
-    with open('monitoring_config.json', 'w') as f:
+    with open(configs_dir / 'monitoring_config.json', 'w') as f:
         json.dump(monitoring_config, f, indent=2)
-    print("✓ Saved monitoring_config.json")
+    print("✓ Saved configs/monitoring_config.json")
 
     # Production Dockerfile
     dockerfile_content = """# Production Dockerfile for PharmaGNN v2
@@ -191,7 +197,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY model.py main.py pharma_gnn_weights_universal.pt* model_config.json calibration_info.json /app/
+COPY pharma_gnn/ /app/pharma_gnn/
+COPY configs/ /app/configs/
+COPY model.py main.py pharma_gnn_weights_universal.pt* pharma_gnn_production_state_dict.pt* /app/
 
 EXPOSE 1234
 
@@ -215,25 +223,28 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "1234"]
             "num_layers": num_layers,
             "heads": heads,
             "calibration_temperature": cal_temp,
-            "config_file": "model_config.json"
+            "config_file": "configs/model_config.json"
         },
         "artifacts": [
-            "model_config.json",
-            "api_spec.json",
-            "monitoring_config.json",
+            "configs/model_config.json",
+            "configs/api_spec.json",
+            "configs/monitoring_config.json",
+            "configs/deployment_summary.json",
             "Dockerfile.production"
         ]
     }
-    with open('deployment_summary.json', 'w') as f:
+    with open(configs_dir / 'deployment_summary.json', 'w') as f:
         json.dump(summary, f, indent=2)
-    print("✓ Saved deployment_summary.json")
+    print("✓ Saved configs/deployment_summary.json")
 
     # Validate live FastAPI serving
     print("\n[4] Validating FastAPI live serving integration...")
     try:
+        import importlib
+        import main
+        importlib.reload(main)
         from fastapi.testclient import TestClient
-        from main import app
-        client = TestClient(app)
+        client = TestClient(main.app)
         
         health_resp = client.get("/api/health")
         assert health_resp.status_code == 200, f"Health check returned {health_resp.status_code}"

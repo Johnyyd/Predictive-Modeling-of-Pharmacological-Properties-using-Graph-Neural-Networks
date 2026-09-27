@@ -16,7 +16,9 @@ RUN pip install --no-cache-dir --default-timeout=1800 \
     rdkit \
     pubchempy
 
-COPY model.py main.py pharma_gnn_weights_universal.pt* /app/
+COPY pharma_gnn/ /app/pharma_gnn/
+COPY configs/ /app/configs/
+COPY model.py main.py pharma_gnn_weights_universal.pt* pharma_gnn_production_state_dict.pt* model_config.json* calibration_info.json* /app/
 
 EXPOSE 1234
 

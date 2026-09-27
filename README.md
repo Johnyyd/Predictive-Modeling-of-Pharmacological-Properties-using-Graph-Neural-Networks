@@ -325,28 +325,60 @@ The script will:
 4. Calculate and report mean ROC-AUC across all valid tasks.
 5. Save the updated network weights to `pharma_gnn_weights_universal.pt`.
 
-### 3. Extended Training Pipeline (`scripts/`)
-For larger-scale workflows, the `scripts/` directory provides multi-phase scripts:
-- `scripts/phase1_build_dataset.py`: Curates CompTox 3.0 and ChEMBL datasets.
-- `scripts/phase2_pretrain.py`: Self-supervised pretraining over 760K CompTox SMILES.
-- `scripts/phase3_finetune.py`: Multi-task fine-tuning with scaffold cross-validation.
-- `scripts/phase4_calibration.py`: Temperature scaling and Expected Calibration Error (ECE) optimization.
-- `scripts/phase5_deployment.py`: Production artifact compilation and TorchScript export.
+### 3. Extended Training Pipeline (`scripts/` & `run_pipeline.py`)
+For larger-scale foundation-tier workflows, the multi-phase training pipeline automates self-supervised pretraining, multi-task transfer learning, calibration, and production packaging:
+
+| Giai đoạn (Phase) | Script thực thi | Trọng số / Artifact sinh ra | Mô tả chi tiết |
+| :--- | :--- | :--- | :--- |
+| **Phase 1: Dataset Build** | `scripts/phase1_build_dataset.py` | `data/comptox_pretrain.csv` | Thu thập và chuẩn hóa 100.000 hợp chất hữu cơ từ CompTox 3.0. |
+| **Phase 2: Pretraining** | `scripts/phase2_pretrain.py` | `pharma_gnn_pretrained_encoder.pt` | Self-supervised masked atom & functional group pretraining (6h runtime). |
+| **Phase 3: Fine-tuning** | `scripts/phase3_finetune.py` | `pharma_gnn_finetuned.pt` | Huấn luyện đa nhiệm 30 epochs trên 13 tasks (Tox21 + ClinTox), đạt **Macro Test ROC-AUC = 0.8146 (81.46%)**. |
+| **Phase 4: Calibration** | `scripts/phase4_calibration.py` | `calibration_info.json` | Tối ưu nhiệt độ $T=0.5$, giảm sai số hiệu chuẩn ECE từ 18.0% xuống **11.5%**. |
+| **Phase 5: Deployment** | `scripts/phase5_deployment.py` | 🎯 `pharma_gnn_production_state_dict.pt` | **Mô hình chính thức hoàn thành toàn bộ pipeline**, đi kèm `model_config.json`. |
+
+> [!NOTE]
+> **Lưu ý về Giới hạn Phần cứng (Hardware Constraints & Reproducibility Note):**
+> Do điều kiện và tài nguyên phần cứng tính toán có giới hạn (môi trường máy tính cá nhân/GPU đơn lẻ thay vì hạ tầng cụm GPU/TPU cluster công nghiệp), tác giả đã tối ưu hóa pipeline huấn luyện tốt nhất có thể trong phạm vi tài nguyên hiện có:
+> - Áp dụng tập con **100.000 hợp chất đại diện** từ CompTox 3.0 cho Phase 2 Pretraining (thay vì toàn bộ 760.000 hợp chất) để hoàn thành trong ~6 giờ tính toán.
+> - Huấn luyện mô hình đạt **Macro Test ROC-AUC = 0.8146 (81.46%)** trên 13 biological tasks với kiến trúc 128 hidden channels, 4 GATv2 layers và 4 attention heads.
+> - Kết quả này phản ánh năng lực dự đoán tối ưu nhất đạt được trong điều kiện giới hạn phần cứng hiện tại của tác giả, đồng thời cung cấp kiến trúc mã nguồn mở hoàn chỉnh để cộng đồng có thể dễ dàng scale up trên hạ tầng mạnh mẽ hơn.
 
 ---
 
-## 📁 Project Structure
+## 📁 Project Structure & Model Checkpoints
 
 ```text
 .
-├── app.py                             # Streamlit interactive web dashboard
-├── main.py                            # FastAPI backend REST service & GNNExplainer
-├── model.py                           # PyTorch Geometric PharmaGNN & Attention architecture
-├── train.py                           # Multi-task GNN training script
-├── pharma_gnn_weights_universal.pt    # Universal model weights checkpoint
+├── app.py                             # Streamlit interactive Apple-grade web dashboard
+├── main.py                            # FastAPI backend REST service, DoS protection & GNNExplainer
+├── model.py                           # PyTorch Geometric PharmaGNN entry point (re-exports pharma_gnn.model)
+├── train.py                           # Multi-task GNN baseline training script
+├── run_pipeline.py                    # Orchestrator pipeline tự động chạy từ Phase 1 đến Phase 5
+│
+├── 📦 pharma_gnn/                      # Core modular Python package
+│   ├── __init__.py                    # Public package exports
+│   ├── model.py                       # GATv2Conv + FunctionalGroupInteraction architecture
+│   ├── chemistry.py                   # Atom features, graph construction, toxicophores & descriptors
+│   ├── security.py                    # Sliding window rate limiter & OWASP security middlewares
+│   └── config.py                      # Centralized configuration loader
+│
+├── 🏆 MODEL CHECKPOINTS:
+│   ├── pharma_gnn_production_state_dict.pt  # [CHÍNH THỨC] Mô hình hoàn thành toàn bộ 5 Phase (128d, 4 layers, 4 heads)
+│   ├── pharma_gnn_finetuned.pt              # Checkpoint sau Phase 3 Fine-tuning (ROC-AUC 81.46%)
+│   ├── pharma_gnn_pretrained_encoder.pt     # Checkpoint sau Phase 2 Pretraining (100k hợp chất CompTox)
+│   └── pharma_gnn_weights_universal.pt      # Bản baseline cũ v1 (32d, 2 layers, ~9k mẫu)
+│
+├── ⚙️ CONFIGURATION & CALIBRATION (configs/ & root):
+│   ├── configs/                             # Centralized configs directory
+│   ├── model_config.json                    # Cấu hình hyperparameters & đường dẫn weights production
+│   ├── calibration_info.json                # Thông số Temperature Scaling & kiểm định hóa học
+│   ├── deployment_summary.json              # Tổng kết triển khai Phase 5
+│   └── monitoring_config.json               # Cấu hình giám sát độ trôi dữ liệu (Data drift)
+│
 ├── requirements.txt                   # Python dependencies specification
 ├── Dockerfile.backend                 # Docker container for FastAPI backend
 ├── Dockerfile.frontend                # Docker container for Streamlit frontend
+├── Dockerfile.production              # Docker container for production deployment
 ├── docker-compose.yml                 # Multi-container orchestration config
 ├── HYBRID_TRAINING_PLAN.md            # Comprehensive multi-source training roadmap
 ├── data/                              # Local dataset cache and splits
@@ -361,6 +393,48 @@ For larger-scale workflows, the `scripts/` directory provides multi-phase script
 
 ---
 
+## 🛡️ Production Security & DoS/DDoS Hardening (OWASP Top 10)
+
+The production API in [`main.py`](file:///home/tringuyen/Documents/GitHub/Predictive-Modeling-of-Pharmacological-Properties-using-Graph-Neural-Networks/main.py) incorporates defense-in-depth protections engineered specifically against volumetric DoS, algorithmic complexity attacks, and data leakage:
+
+### 1. In-Memory Sliding-Window Rate Limiting
+- **Client IP Tracking**: Inspects proxy headers (`X-Forwarded-For`, `X-Real-IP`) and native socket connections with microsecond timestamp deque pruning.
+- **Differentiated Endpoint Quotas**:
+  - `POST /api/predict`: Capped at **20 requests/minute** per IP (prevents CPU exhaustion on compute-heavy GNN forward passes & GNNExplainer saliency extraction).
+  - General API: **120 requests/minute** per IP.
+- **RFC 6585 Compliance**: Exceeded quotas return HTTP `429 Too Many Requests` with a dynamic `Retry-After: <seconds>` header.
+- **Probe Immunity**: Orchestrator readiness and liveness checks (`/api/health`, `/health`) bypass rate limiting to prevent Kubernetes flapping.
+
+### 2. Payload Safety & Memory Exhaustion Shield
+- **Strict Body Capping**: [`PayloadSizeLimitMiddleware`](file:///home/tringuyen/Documents/GitHub/Predictive-Modeling-of-Pharmacological-Properties-using-Graph-Neural-Networks/main.py) rejects any incoming request body exceeding **64 KB** with HTTP `413 Payload Too Large` before buffer allocation.
+- **SMILES Length & Geometry Bounds**: Maximum chemical SMILES length is restricted to **500 characters** with Pydantic validation (HTTP `422`), preventing RDKit parser denial-of-service from cyclomatic explosion.
+- **Concentration Clamping**: Concentration is strictly bounded to physiological and experimental ranges ($10^{-12} \le C \le 10.0$ M).
+
+### 3. OWASP Top 10 Response Headers
+All HTTP responses are armored with secure headers:
+- `X-Content-Type-Options: nosniff` (A02 Security Misconfiguration)
+- `X-Frame-Options: DENY` (Clickjacking defense)
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Content-Security-Policy: default-src 'self'`
+- `Permissions-Policy: accelerometer=(), camera=(), geolocation=(), microphone=()`
+- `X-XSS-Protection: 1; mode=block`
+
+### 4. Traceback & Internal Path Masking
+- Custom global exception handlers intercept unhandled runtime errors, logging tracebacks securely on the server while returning generic sanitized messages (`HTTP 500`) without exposing internal server paths or stack traces.
+
+---
+
+## 🎨 Apple-Tier Responsive Design System
+
+The frontend in [`app.py`](file:///home/tringuyen/Documents/GitHub/Predictive-Modeling-of-Pharmacological-Properties-using-Graph-Neural-Networks/app.py) was built adhering to Apple WWDC fluid interface principles and Emil Kowalski design engineering:
+- **Optical Typography**: Integrated `Plus Jakarta Sans` with tight negative tracking (`-0.025em`) on display headings and `JetBrains Mono` for molecular formulas.
+- **Double-Bezel Glassmorphism**: Cards feature concentric translucent backdrops (`backdrop-filter: blur(24px) saturate(180%)`), inner 1px highlight rims (`box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16)`), and deep space gradients (`#080c14`).
+- **Tactile Micro-Interactions**: Active press feedback (`transform: scale(0.97)` on `:active`), 150ms `cubic-bezier(0.23, 1, 0.32, 1)` transitions, and glowing hazard indicator badges.
+- **Fluid Responsiveness**: Adaptive layouts optimized from mobile phones (`min-h-[100dvh]`) to ultra-wide displays.
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+

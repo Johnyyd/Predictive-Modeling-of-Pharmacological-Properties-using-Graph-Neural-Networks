@@ -14,28 +14,40 @@ def test_load_calibration_temperature():
 
 def test_export_model_pipeline(tmp_path):
     """Verify export_model generates config, specs, and verifies serving."""
-    success = export_model(
-        weights_path="pharma_gnn_weights_universal.pt",
-        hidden_channels=32,
-        num_layers=2,
-        heads=2,
-        smoke_test=True
-    )
-    assert success is True
-    
-    # Check generated files
-    assert Path("model_config.json").exists()
-    assert Path("api_spec.json").exists()
-    assert Path("monitoring_config.json").exists()
-    assert Path("Dockerfile.production").exists()
-    assert Path("deployment_summary.json").exists()
-    
-    # Verify model_config contents
-    with open("model_config.json", "r") as f:
-        cfg = json.load(f)
-    assert cfg["hidden_channels"] == 32
-    assert cfg["num_classes"] == 13
-    assert len(cfg["tasks"]) == 13
+    cfg_target = Path("configs/model_config.json") if Path("configs/model_config.json").exists() else Path("model_config.json")
+    backup_cfg = (cfg_target, cfg_target.read_text()) if cfg_target.exists() else None
+    try:
+        success = export_model(
+            weights_path="pharma_gnn_weights_universal.pt",
+            hidden_channels=32,
+            num_layers=2,
+            heads=2,
+            smoke_test=True
+        )
+        assert success is True
+        
+        # Check generated files in configs/
+        assert Path("configs/model_config.json").exists()
+        assert Path("configs/api_spec.json").exists()
+        assert Path("configs/monitoring_config.json").exists()
+        assert Path("configs/deployment_summary.json").exists()
+        assert Path("Dockerfile.production").exists()
+        
+        # Verify model_config contents
+        with open("configs/model_config.json", "r") as f:
+            cfg = json.load(f)
+        assert cfg["hidden_channels"] == 32
+        assert cfg["num_classes"] == 13
+        assert len(cfg["tasks"]) == 13
+    finally:
+        if backup_cfg is not None:
+            p, text = backup_cfg
+            p.write_text(text)
+        if Path("pharma_gnn_test_state_dict.pt").exists():
+            try:
+                Path("pharma_gnn_test_state_dict.pt").unlink()
+            except Exception:
+                pass
 
 def test_fastapi_endpoints_with_exported_config():
     """Verify live FastAPI service endpoints with updated configuration."""

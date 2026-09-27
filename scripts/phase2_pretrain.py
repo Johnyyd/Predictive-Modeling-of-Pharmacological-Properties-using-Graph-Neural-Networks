@@ -493,8 +493,8 @@ def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description="Phase 2: Self-Supervised Pretraining for PharmaGNN v2 Foundation Model")
     parser.add_argument("--smoke-test", action="store_true", help="Run quick smoke test to verify loss convergence")
-    parser.add_argument("--limit", type=int, default=50000, help="Maximum number of SMILES to load")
-    parser.add_argument("--epochs", type=int, default=50, help="Number of pretraining epochs")
+    parser.add_argument("--limit", type=int, default=100000, help="Maximum number of SMILES to load")
+    parser.add_argument("--epochs", type=int, default=20, help="Number of pretraining epochs")
     parser.add_argument("--batch-size", type=int, default=32, help="Graph batch size")
     parser.add_argument("--hidden-channels", type=int, default=128, help="Hidden dimension (128 for v2 foundation)")
     parser.add_argument("--num-layers", type=int, default=4, help="Number of GATv2 layers (4 for v2 foundation)")

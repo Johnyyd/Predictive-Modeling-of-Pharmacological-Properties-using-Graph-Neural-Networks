@@ -59,8 +59,270 @@ def on_method_change():
 # Dashboard page configuration
 st.set_page_config(page_title="PharmaGraph AI", page_icon="🧬", layout="wide")
 
-st.title("🧬 PharmaGraph: AI Pharmacological Analysis Platform")
-st.markdown("Predict molecular toxicity and pharmacological risks using GNN with **Functional Group Attention & Chemical Interaction Learning**, engineered for researchers and toxicologists.")
+# --- HIGH-END APPLE / LINEAR DESIGN SYSTEM INJECTION ---
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg-canvas: #080c14;
+    --surface-glass: rgba(15, 23, 42, 0.72);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-highlight: rgba(255, 255, 255, 0.16);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent-cyan: #38bdf8;
+    --ease-apple: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.stApp {
+    background-color: var(--bg-canvas) !important;
+    background-image: 
+        radial-gradient(ellipse 90% 55% at 50% -15%, rgba(56, 189, 248, 0.14), transparent),
+        radial-gradient(ellipse 70% 45% at 85% 85%, rgba(99, 102, 241, 0.08), transparent) !important;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    color: var(--text-primary) !important;
+    min-height: 100dvh;
+}
+
+.block-container {
+    padding-top: 1.8rem !important;
+    padding-bottom: 3.5rem !important;
+    max-width: 1240px !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    letter-spacing: -0.025em !important;
+    font-weight: 700 !important;
+}
+
+.hero-container {
+    margin-bottom: 2rem;
+    padding: 0.5rem 0 1rem 0;
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    background: rgba(56, 189, 248, 0.10);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    color: #38bdf8;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 0.85rem;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+.hero-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: #38bdf8;
+    box-shadow: 0 0 10px #38bdf8;
+    animation: pulse-dot 2s infinite var(--ease-apple);
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+.hero-title {
+    font-size: 2.35rem;
+    line-height: 1.15;
+    background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 60%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0.35rem 0 0.65rem 0;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.hero-subtitle {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-width: 860px;
+}
+
+/* Apple Concentric Glassmorphic Cards */
+.pg-glass-card {
+    background: var(--surface-glass);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-highlight);
+    border-radius: 18px;
+    padding: 1.4rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 
+        0 12px 32px -8px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: border-color 200ms var(--ease-apple), transform 200ms var(--ease-apple);
+}
+
+.pg-glass-card:hover {
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* Metric Cards */
+div[data-testid="stMetric"] {
+    background: rgba(15, 23, 42, 0.65) !important;
+    backdrop-filter: blur(16px) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-top: 1px solid var(--border-highlight) !important;
+    border-radius: 14px !important;
+    padding: 0.9rem 1.15rem !important;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3) !important;
+    transition: transform 150ms var(--ease-apple), border-color 150ms var(--ease-apple) !important;
+}
+
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    border-color: rgba(56, 189, 248, 0.3) !important;
+}
+
+div[data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em !important;
+}
+
+div[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-size: 1.65rem !important;
+    font-weight: 700 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Emil Kowalski Buttons */
+button[kind="primary"], .stButton > button {
+    background: linear-gradient(180deg, #0ea5e9 0%, #0284c7 100%) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    border-radius: 12px !important;
+    padding: 0.65rem 1.4rem !important;
+    font-weight: 600 !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    letter-spacing: -0.01em !important;
+    box-shadow: 0 4px 16px rgba(2, 132, 199, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+    transition: all 150ms var(--ease-apple) !important;
+}
+
+button[kind="primary"]:hover, .stButton > button:hover {
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%) !important;
+    box-shadow: 0 6px 22px rgba(2, 132, 199, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+    transform: translateY(-1px) !important;
+}
+
+button[kind="primary"]:active, .stButton > button:active {
+    transform: scale(0.97) !important;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3) !important;
+    transition: transform 100ms ease-out !important;
+}
+
+/* Radio button pills */
+div[role="radiogroup"] {
+    gap: 8px !important;
+}
+
+div[role="radiogroup"] > label {
+    background: rgba(15, 23, 42, 0.6) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 12px !important;
+    padding: 8px 16px !important;
+    transition: all 160ms var(--ease-apple) !important;
+}
+
+div[role="radiogroup"] > label:hover {
+    border-color: rgba(56, 189, 248, 0.4) !important;
+    background: rgba(30, 41, 59, 0.7) !important;
+}
+
+/* Tabs Styling */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+    padding: 6px !important;
+    border-radius: 14px !important;
+    border: 1px solid var(--border-subtle) !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 10px !important;
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    padding: 8px 16px !important;
+    border: none !important;
+    background: transparent !important;
+    transition: all 180ms var(--ease-apple) !important;
+}
+
+.stTabs [aria-selected="true"] {
+    background: rgba(30, 41, 59, 0.9) !important;
+    color: #38bdf8 !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Glassmorphic Callout Banners */
+div[data-testid="stAlert"] {
+    border-radius: 14px !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3) !important;
+    transition: all 180ms var(--ease-apple) !important;
+}
+
+div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) {
+    background: rgba(16, 185, 129, 0.12) !important;
+    border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+
+div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) {
+    background: rgba(239, 68, 68, 0.14) !important;
+    border: 1px solid rgba(239, 68, 68, 0.38) !important;
+}
+
+/* Responsive mobile */
+@media (max-width: 768px) {
+    .hero-title {
+        font-size: 1.75rem !important;
+    }
+    .hero-subtitle {
+        font-size: 0.95rem !important;
+    }
+    .pg-glass-card {
+        padding: 1rem !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="hero-container">
+    <div class="hero-badge">
+        <span class="hero-badge-dot"></span>
+        GNN Production Engine v2.1 • 81.5% ROC-AUC • DoS Hardened
+    </div>
+    <h1 class="hero-title">🧬 PharmaGraph: AI Pharmacological Analysis Platform</h1>
+    <p class="hero-subtitle">
+        Predict molecular toxicity and pharmacological risks using GNN with <strong>Functional Group Attention & Chemical Interaction Learning</strong>, engineered for researchers and toxicologists.
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 import os
 API_URL = os.environ.get("API_URL", "http://localhost:1234/api/predict")
@@ -230,8 +492,16 @@ if final_smiles:
                         "data": response.json()
                     }
                     st.session_state.last_analyzed_smiles = final_smiles
+                elif response.status_code == 429:
+                    err_json = response.json()
+                    retry_sec = err_json.get("retry_after", 3)
+                    st.warning(f"⏳ **Rate Limiting Active (HTTP 429)**: {err_json.get('detail', 'Too many requests. Please wait a few moments before retrying.')}")
+                elif response.status_code == 413:
+                    st.error("🛑 **Payload Too Large (HTTP 413)**: Request body exceeds the 64 KB safety limit.")
+                elif response.status_code == 422:
+                    st.error("⚠️ **Validation Error (HTTP 422)**: Molecule structure exceeds 500 characters or concentration is out of safe range (10⁻¹² to 10.0 M).")
                 else:
-                    st.error(f"AI Server Error: {response.text}")
+                    st.error(f"AI Server Error ({response.status_code}): {response.text}")
             except Exception as e:
                 st.error(f"Failed to connect to FastAPI AI Backend. Error details: {e}")
 
@@ -313,15 +583,21 @@ if final_smiles:
                     # Default coloring if non-toxic
                     viewer.setStyle({'stick': {'radius': 0.15}, 'sphere': {'radius': 0.3}})
                 
-                viewer.setBackgroundColor('#0e1117') # Match dark theme
+                viewer.setBackgroundColor('#080c14') # Match Apple dark canvas
                 viewer.zoomTo()
                 showmol(viewer, height=350, width=400)
                 
-                st.markdown(f"**Identified Name:** {compound_name}")
-                st.markdown(f"**Chemical Formula:** {formula}")
-                st.markdown(f"**Molecular Weight:** {mw:.2f} g/mol")
-                st.markdown(f"**Composition:** {atoms_str}")
-                st.markdown(f"**Functional Groups:** {', '.join(func_groups)}")
+                st.markdown(f"""
+                <div class="pg-glass-card" style="padding: 1.15rem; margin-top: 0.85rem;">
+                    <div style="font-weight: 700; font-size: 1.15rem; color: #f8fafc; margin-bottom: 0.4rem;">{compound_name}</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 0.75rem;">
+                        <span style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 6px; padding: 2px 8px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; font-weight: 600;">{formula}</span>
+                        <span style="background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.28); border-radius: 6px; padding: 2px 8px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; font-weight: 600;">{mw:.2f} g/mol</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; line-height: 1.5; margin-bottom: 0.35rem;"><strong>Composition:</strong> {atoms_str}</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; line-height: 1.5;"><strong>Functional Groups:</strong> {', '.join(func_groups)}</div>
+                </div>
+                """, unsafe_allow_html=True)
         
             with right_col:
                 st.success("✅ AI Analysis Complete!")
@@ -338,14 +614,14 @@ if final_smiles:
                 toxicity_str = data["predictions"]["toxicity_risk"]
                 toxicity_float = float(toxicity_str.replace("%", ""))
                 
-                if toxicity_float >= 80.0:
-                    st.metric(label="Toxicity Risk 🛑", value=toxicity_str, delta="CRITICAL RISK (Extremely High)", delta_color="inverse")
+                if toxicity_float >= 65.0:
+                    st.metric(label="Toxicity Risk 🛑", value=toxicity_str, delta="CRITICAL RISK (Nguy hiểm)", delta_color="inverse")
                     st.error("Warning: This compound presents a severe biological toxicity risk. Structural toxicophores detected.")
-                elif toxicity_float >= 50.0:
-                    st.metric(label="Toxicity Risk ⚠️", value=toxicity_str, delta="Moderate Concern", delta_color="off")
+                elif toxicity_float >= 35.0:
+                    st.metric(label="Toxicity Risk ⚠️", value=toxicity_str, delta="Moderate Concern (Cần kiểm chứng)", delta_color="off")
                     st.warning("Structure contains potential toxicophores or alerts. Experimental / clinical assessment advised.")
                 else:
-                    st.metric(label="Toxicity Risk ✅", value=toxicity_str, delta="Low Concern / Safe", delta_color="normal")
+                    st.metric(label="Toxicity Risk ✅", value=toxicity_str, delta="Low Concern / Safe (An toàn)", delta_color="normal")
                     st.success("Stable structure. No critical toxicity hazards detected based on reference database.")
                     
                 st.progress(int(toxicity_float))
@@ -365,19 +641,19 @@ if final_smiles:
                 dosage_effect = attribution.get("dosage_effect", {})
                 top_atoms = attribution.get("top_contributing_atoms", [])
 
-                # 1. Primary Driver Callout Card
+                # 1. Primary Driver Callout Card (Dynamic risk-tier background: Green / Yellow / Red)
                 driver_col1, driver_col2 = st.columns([1, 2.2])
                 with driver_col1:
-                    if "Alerts" in primary_driver or "Toxicophore" in primary_driver:
-                        st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}")
-                    elif "Concentration" in primary_driver or "Dosage" in primary_driver:
-                        st.warning(f"**Primary Driving Factor:**\n\n🧪 {primary_driver}")
-                    elif "Synergy" in primary_driver:
-                        st.warning(f"**Primary Driving Factor:**\n\n⚛️ {primary_driver}")
-                    elif "Safe" in primary_driver or "Benign" in primary_driver:
-                        st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}")
+                    if toxicity_float >= 65.0:
+                        # Nguy hiểm -> Nền đỏ (Red)
+                        st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}\n\n*(Mức độ: **Nguy hiểm** — {toxicity_float:.1f}% risk)*")
+                    elif toxicity_float >= 35.0:
+                        # Cần kiểm chứng -> Nền vàng (Yellow)
+                        icon = "🧪" if "Concentration" in primary_driver or "Dosage" in primary_driver else ("⚛️" if "Synergy" in primary_driver else "⚠️")
+                        st.warning(f"**Primary Driving Factor:**\n\n{icon} {primary_driver}\n\n*(Mức độ: **Cần kiểm chứng** — {toxicity_float:.1f}% risk)*")
                     else:
-                        st.info(f"**Primary Driving Factor:**\n\nℹ️ {primary_driver}")
+                        # An toàn -> Nền xanh lá (Green)
+                        st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}\n\n*(Mức độ: **An toàn** — {toxicity_float:.1f}% risk)*")
 
                 with driver_col2:
                     st.markdown(f"**Reasoning Summary:**\n\n{summary_text}")

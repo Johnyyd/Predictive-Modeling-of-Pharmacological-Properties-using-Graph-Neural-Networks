@@ -90,3 +90,58 @@ def test_app_shows_decision_attribution_when_data_present():
     assert "Functional Group Cross-Attention Interactions" in combined_markdown
     assert "Dosage & Concentration Sensitivity" in combined_markdown
     assert "Key Influential Atoms" in combined_markdown
+
+
+@pytest.mark.parametrize("risk_str,expected_callout,expected_label", [
+    ("20.0%", "success", "An toàn"),
+    ("45.0%", "warning", "Cần kiểm chứng"),
+    ("85.0%", "error", "Nguy hiểm"),
+])
+def test_primary_driving_factor_risk_tier_colors(risk_str, expected_callout, expected_label):
+    """Verify that Primary Driving Factor displays with Green (success), Yellow (warning), and Red (error)."""
+    at = AppTest.from_file("../app.py", default_timeout=30)
+    at.run()
+    
+    phenol_smiles = "C1=CC=C(C=C1)O"
+    mock_data = {
+        "smiles": phenol_smiles,
+        "compound_name": "Phenol",
+        "concentration_molar": 1.0,
+        "pIC50": 0.0,
+        "graph_info": {"atoms_count": 7, "bonds_count": 7},
+        "predictions": {
+            "toxicity_risk": risk_str,
+            "target_class": 12,
+            "ct_tox_class": 12,
+            "all_class_probs": [risk_str.replace('%', '')] * 13
+        },
+        "decision_attribution": {
+            "primary_driver": "Intrinsic Structural Alerts & Toxicophores",
+            "summary_text": f"Predicted toxicity ({risk_str}).",
+            "toxicophores": [],
+            "functional_groups_present": [],
+            "functional_group_synergy": [],
+            "dosage_effect": {},
+            "top_contributing_atoms": []
+        },
+        "explanation": {"node_importance": [0.1] * 7}
+    }
+    
+    at.selectbox(key="selected_preset_input").select("Phenol (Industrial toxicant & chemical cauterant)")
+    at.session_state["current_analysis"] = {
+        "smiles": phenol_smiles,
+        "data": mock_data
+    }
+    at.session_state["last_analyzed_smiles"] = phenol_smiles
+    at.run()
+    
+    assert not at.exception
+    if expected_callout == "success":
+        success_texts = [s.value for s in at.success]
+        assert any("Primary Driving Factor" in s and expected_label in s for s in success_texts)
+    elif expected_callout == "warning":
+        warning_texts = [w.value for w in at.warning]
+        assert any("Primary Driving Factor" in w and expected_label in w for w in warning_texts)
+    elif expected_callout == "error":
+        error_texts = [e.value for e in at.error]
+        assert any("Primary Driving Factor" in e and expected_label in e for e in error_texts)

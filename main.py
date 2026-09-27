@@ -1,179 +1,67 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import torch
-from torch_geometric.data import Data
-from rdkit import Chem
-from rdkit.Chem import Descriptors
-from rdkit import RDLogger
 import os
 import math
-import pubchempy as pcp
+import logging
+import torch
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from rdkit import Chem
+from rdkit import RDLogger
+from torch_geometric.explain import Explainer, GNNExplainer
 
-# Automatically extract 85 RDKit functional group descriptors and names
-frag_items = [(name.replace('fr_', ''), func) for name, func in Descriptors.descList if name.startswith('fr_')]
-frag_names = [item[0] for item in frag_items]
-frag_funcs = [item[1] for item in frag_items]
+# Modular PharmaGNN package imports
+from pharma_gnn.model import PharmaGNN
+from pharma_gnn.chemistry import (
+    frag_names,
+    frag_funcs,
+    TOXICOPHORE_DEFINITIONS,
+    get_toxicophore_density,
+    analyze_toxicophores,
+    get_compound_name,
+    smiles_to_graph
+)
+from pharma_gnn.security import (
+    SlidingWindowRateLimiter,
+    RateLimitMiddleware,
+    PayloadSizeLimitMiddleware,
+    SecurityHeadersMiddleware,
+    rate_limiter,
+    DEFAULT_RATE_LIMIT,
+    PREDICT_RATE_LIMIT
+)
+from pharma_gnn.config import load_model_config
 
-# Knowledge-based toxicophore alerts with descriptions
-TOXICOPHORE_DEFINITIONS = [
-    {
-        "name": "Cyanide / Nitrile group",
-        "smarts": "C#N",
-        "description": "Cyano group known for cellular respiration toxicity and cytochrome c oxidase inhibition."
-    },
-    {
-        "name": "Organophosphate ester",
-        "smarts": "[$([P](=[O,S])[F,Cl]),$([P](=[O,S])C#N),$([P](=[O,S])([#6])S),$([P;!$([P]-[O]-[P])](=[O,S])([O,S][#6])([O,S][#6])([O,S,#6][#6]))]",
-        "description": "Potent neurotoxic pharmacophore acting via acetylcholinesterase inhibition."
-    },
-    {
-        "name": "Benzene ring",
-        "smarts": "c1ccccc1",
-        "description": "Aromatic hydrocarbon core linked to metabolic bioactivation and reactive metabolite formation."
-    },
-    {
-        "name": "Phenol moiety",
-        "smarts": "c1ccccc1O",
-        "description": "Hydroxylated aromatic ring capable of quinone/semiquinone redox cycling and mitochondrial uncoupling."
-    },
-    {
-        "name": "Reactive Aldehyde",
-        "smarts": "[CX3H1](=O)",
-        "description": "Electrophilic carbonyl center forming covalent adducts with cellular proteins and DNA."
-    },
-    {
-        "name": "Sulfide / Thiol center",
-        "smarts": "[S]",
-        "description": "Reactive sulfur center susceptible to redox cycling and cellular glutathione depletion."
-    },
-    {
-        "name": "Halogenated aromatic",
-        "smarts": "[Cl,Br,I]c1ccccc1",
-        "description": "Halogenated phenyl ring associated with high lipophilicity, metabolic persistence, and bioaccumulation."
-    },
-]
-toxic_patterns = [Chem.MolFromSmarts(item["smarts"]) for item in TOXICOPHORE_DEFINITIONS]
-
-def get_toxicophore_density(mol):
-    total_atoms = mol.GetNumAtoms()
-    if total_atoms == 0: return [0.0]*len(toxic_patterns)
-    
-    densities = []
-    for pattern in toxic_patterns:
-        matches = mol.GetSubstructMatches(pattern)
-        if not matches:
-            densities.append(0.0)
-        else:
-            # Count unique toxicophore atoms
-            toxic_atoms = set()
-            for match in matches:
-                toxic_atoms.update(match)
-            densities.append(len(toxic_atoms) / total_atoms)
-    return densities
-
-def analyze_toxicophores(mol):
-    total_atoms = mol.GetNumAtoms()
-    alerts = []
-    for defn, pattern in zip(TOXICOPHORE_DEFINITIONS, toxic_patterns):
-        matches = mol.GetSubstructMatches(pattern)
-        if matches:
-            matched_atoms = set()
-            for match in matches:
-                matched_atoms.update(match)
-            alerts.append({
-                "name": defn["name"],
-                "smarts": defn["smarts"],
-                "description": defn["description"],
-                "count": len(matches),
-                "matched_atom_indices": sorted(list(matched_atoms)),
-                "density": round(len(matched_atoms) / total_atoms, 4) if total_atoms > 0 else 0.0
-            })
-    return alerts
-
-# Compound name mapping for common chemicals (fallback when PubChem is unavailable)
-COMPOUND_NAME_MAP = {
-    'O': 'Water',
-    '[Na+].[Cl-]': 'Sodium chloride (NaCl)',
-    '[Na+].[F-]': 'Sodium fluoride',
-    '[K+].[Cl-]': 'Potassium chloride',
-    '[Ca+2].[Cl-].[Cl-]': 'Calcium chloride',
-    '[NH4+].[Cl-]': 'Ammonium chloride',
-    'CCO': 'Ethanol',
-    'CO': 'Methanol',
-    'CCOCCO': 'Ethylene glycol',
-    'CCCCO': 'Butanol',
-    'CC(=O)O': 'Acetic acid',
-    'CCC(=O)O': 'Propionic acid',
-    'CCCC(=O)O': 'Butyric acid',
-    'CC(O)=O': 'Lactic acid',
-    'CC(=O)Oc1ccccc1C(=O)O': 'Aspirin',
-    'CC(=O)Nc1ccc(O)cc1': 'Paracetamol',
-    'CN1C=NC2=C1C(=O)N(C(=O)N2C)C': 'Caffeine',
-    'C#N': 'Cyanide',
-    'C1=CC=C(C=C1)O': 'Phenol',
-    'c1ccccc1O': 'Phenol',
-    'C1=CC=C(C=C1)O': 'Phenol',
-    'C(C(=O)O)N': 'Glycine',
-    'CC(C(=O)O)N': 'Alanine',
-    'CC(C)C(C(=O)O)N': 'Valine',
-    'OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@H]1O': 'Glucose',
-    'OC[C@H]1O[C@H](O)[C@@H](O)[C@H](O)[C@@H]1O': 'Fructose',
-    'COc1ccc2nc(nc2c1)N': 'Adenine',
-    'C1=CC=C(C=C1)': 'Benzene',
-    'Cc1ccccc1': 'Toluene',
-    'c1ccccc1': 'Benzene',
-    'C1=CC=C(C=C1)O': 'Phenol',
-    'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O': 'Ibuprofen',
-    'CN1CCCC1c2cccnc2': 'Nicotine',
-    'NC(=O)N': 'Urea',
-    'N': 'Ammonia',
-    'C1CCOCC1': 'Tetrahydrofuran',
-    'C1COCCO1': '1,4-dioxane',
-    'CC(=O)NC1=CC=CC=C1': 'Acetanilide',
-    'CN1C(=O)NC2=NC=NC=C21': 'Theophylline',
-}
-
-# PubChem reverse lookup - get compound name from SMILES
-compound_name_cache = {}
-
-def get_compound_name(smiles):
-    """Lookup compound name from PubChem using SMILES with local fallback."""
-    # First check local mapping
-    if smiles in COMPOUND_NAME_MAP:
-        return COMPOUND_NAME_MAP[smiles]
-    
-    if smiles in compound_name_cache:
-        return compound_name_cache[smiles]
-    
-    try:
-        compounds = pcp.get_compounds(smiles, 'smiles')
-        if compounds:
-            c = compounds[0]
-            # Prefer IUPAC name, then synonym
-            name = c.iupac_name or (c.synonyms[0] if c.synonyms else 'Unknown')
-            compound_name_cache[smiles] = name
-            return name
-    except Exception:
-        pass
-    
-    compound_name_cache[smiles] = 'Unknown'
-    return 'Unknown'
-
-# Import GNN model architecture
-from model import PharmaGNN
 RDLogger.DisableLog('rdApp.*')
-app = FastAPI(title="PharmaGraph GNN Service")
+logger = logging.getLogger("pharmagnn_api")
 
-# 1. Initialize model architecture (num_node_features = 6)
-config_path = "model_config.json"
-model_cfg = {}
-if os.path.exists(config_path):
-    try:
-        with open(config_path, 'r') as f:
-            model_cfg = json.load(f)
-    except Exception:
-        pass
+app = FastAPI(
+    title="PharmaGraph GNN Service",
+    description="High-performance Pharmacological GNN API with multi-layered DoS defense, sliding-window rate limiting, and OWASP hardening.",
+    version="2.1.0"
+)
 
+# Register security & defense middlewares (innermost to outermost)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(PayloadSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Safe global exception handler preventing internal traceback / path disclosure (OWASP A02/A10)
+@app.exception_handler(Exception)
+async def safe_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers
+        )
+    logger.error(f"Internal server error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error occurred while processing chemical graph."}
+    )
+
+# 1. Initialize model architecture and weights
+model_cfg = load_model_config("model_config.json")
 hidden_channels = model_cfg.get('hidden_channels', 32)
 num_layers = model_cfg.get('num_layers', 2)
 heads = model_cfg.get('heads', 2)
@@ -190,91 +78,43 @@ ai_model = PharmaGNN(
     fg_embed_dim=fg_embed_dim
 )
 
-weights_path = "pharma_gnn_weights_universal.pt"
+weights_path = model_cfg.get(
+    'weights_path', 
+    'pharma_gnn_production_state_dict.pt' if os.path.exists('pharma_gnn_production_state_dict.pt') and hidden_channels > 32 else 'pharma_gnn_weights_universal.pt'
+)
 if os.path.exists(weights_path):
     try:
         ai_model.load_state_dict(torch.load(weights_path, weights_only=True))
-        print("[+] Successfully loaded trained model weights.")
+        print(f"[+] Successfully loaded trained model weights from {weights_path}.")
     except Exception as e:
-        print(f"[-] Warning: Could not load model weights: {e}")
+        print(f"[-] Warning: Could not load model weights from {weights_path}: {e}")
 else:
     print("[-] No weights file detected. Initializing random weights.")
 
 ai_model.eval()
 
 class MoleculeRequest(BaseModel):
-    smiles: str
-    concentration_molar: float = 1.0 # Default 1.0 Molar
-
-# 2. Extract 6 chemical node features
-def get_atom_features(atom):
-    return [
-        atom.GetAtomicNum(),            
-        atom.GetDegree(),               
-        int(atom.GetIsAromatic()),      
-        atom.GetImplicitValence(), # Implicit valence
-        atom.GetFormalCharge(),         
-        atom.GetNumRadicalElectrons()   
-    ]
-
-def smiles_to_graph(smiles_string, concentration_molar=1e-5):
-    """
-    Convert SMILES to PyG Data object.
-    Default concentration_molar=1e-5 (10 µM) matches Tox21/ClinTox screening concentration.
-    pIC50 = -log10(concentration_molar) => 5.0 for 10 µM
-    """
-    mol = Chem.MolFromSmiles(smiles_string)
-    if mol is None: return None
-    mol = Chem.AddHs(mol)
-    
-    node_features = [get_atom_features(atom) for atom in mol.GetAtoms()]
-    edges_src, edges_dst, edge_features = [], [], []
-    
-    for bond in mol.GetBonds():
-        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        edges_src += [i, j]
-        edges_dst += [j, i]
-        b_type = bond.GetBondTypeAsDouble()
-        edge_features += [[b_type], [b_type]]
-        
-    global_features = [
-        Descriptors.MolWt(mol) / 100.0, 
-        Descriptors.MolLogP(mol), 
-        Descriptors.TPSA(mol) / 100.0, 
-        float(Descriptors.NumRotatableBonds(mol))
-    ]
-    
-    # Append 7 toxicophore density features to global features
-    toxic_densities = get_toxicophore_density(mol)
-    global_features.extend(toxic_densities)
-    
-    # Extract 85 functional group features
-    func_group_features = [float(func(mol)) for func in frag_funcs]
-    
-    # Compute pIC50 from concentration_molar
-    if concentration_molar <= 0:
-        pIC50 = 0.0
-    else:
-        pIC50 = -math.log10(concentration_molar)
-    
-    return Data(
-        x=torch.tensor(node_features, dtype=torch.float),
-        edge_index=torch.tensor([edges_src, edges_dst], dtype=torch.long),
-        edge_attr=torch.tensor(edge_features, dtype=torch.float),
-        global_features=torch.tensor([global_features], dtype=torch.float),
-        func_group_features=torch.tensor([func_group_features], dtype=torch.float),
-        concentration=torch.tensor([[pIC50]], dtype=torch.float)
-    )
-
-from torch_geometric.explain import Explainer, GNNExplainer
+    smiles: str = Field(..., min_length=1, max_length=500, description="SMILES chemical structure (max 500 chars)")
+    concentration_molar: float = Field(default=1.0, ge=1e-12, le=10.0, description="Concentration in Molar units (10^-12 to 10.0 M)")
 
 @app.get("/api/health")
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "PharmaGraph GNN Service", "version": "2.0.0"}
+    """Health and readiness probe endpoint (exempt from rate limiting)."""
+    return {
+        "status": "ok",
+        "service": "PharmaGraph GNN Service",
+        "version": "2.1.0",
+        "hidden_channels": hidden_channels,
+        "layers": num_layers
+    }
 
 @app.post("/api/predict")
 async def predict_molecule(request: MoleculeRequest):
+    """
+    Predict 13 pharmacological and biological toxicity endpoints using PharmaGNN.
+    Includes attention synergy extraction, GNNExplainer atom attribution, and dosage sensitivity.
+    """
     raw_mol = Chem.MolFromSmiles(request.smiles)
     if raw_mol is None:
         raise HTTPException(status_code=400, detail="Invalid SMILES string")
@@ -315,8 +155,6 @@ async def predict_molecule(request: MoleculeRequest):
         # Report most probable target class for reference
         max_prob, target_class = torch.max(probabilities, dim=1)
         target_class_idx = target_class.item()
-        
-        # Full 13 class probabilities for client visualization
         all_probs = probabilities[0].tolist()
         
         # Baseline screening prediction at 10 µM (pIC50 = 5.0) for dosage sensitivity analysis
@@ -436,16 +274,16 @@ async def predict_molecule(request: MoleculeRequest):
     top_contributing_atoms = heavy_atoms[:5] if heavy_atoms else atom_attributions[:5]
     
     # Determine primary driving factor & synthesis
-    if toxicity_score >= 50.0:
-        if toxicophore_alerts:
-            primary_driver = "Intrinsic Structural Alerts & Toxicophores"
-            names_str = ", ".join([a["name"] for a in toxicophore_alerts[:3]])
-            summary_text = f"Predicted toxicity ({toxicity_score:.1f}%) is predominantly driven by structural alerts: {names_str}. "
-            if synergy_pairs and synergy_pairs[0]["synergy_score"] > 0.05:
-                summary_text += f"The GNN attention mechanism detected synergy between {synergy_pairs[0]['group_a']} and {synergy_pairs[0]['group_b']}. "
-            if delta_risk > 10.0:
-                summary_text += f"High concentration ({request.concentration_molar:.2g} M) further amplifies risk by +{delta_risk:.1f}%."
-        elif delta_risk > 15.0:
+    if toxicophore_alerts:
+        primary_driver = "Intrinsic Structural Alerts & Toxicophores"
+        names_str = ", ".join([a["name"] for a in toxicophore_alerts[:3]])
+        summary_text = f"Predicted toxicity ({toxicity_score:.1f}%) is predominantly driven by structural alerts: {names_str}. "
+        if synergy_pairs and synergy_pairs[0]["synergy_score"] > 0.05:
+            summary_text += f"The GNN attention mechanism detected synergy between {synergy_pairs[0]['group_a']} and {synergy_pairs[0]['group_b']}. "
+        if delta_risk > 10.0:
+            summary_text += f"High concentration ({request.concentration_molar:.2g} M) further amplifies risk by +{delta_risk:.1f}%."
+    elif toxicity_score >= 50.0:
+        if delta_risk > 15.0:
             primary_driver = "High Concentration / Dosage Amplification"
             summary_text = (
                 f"Predicted toxicity ({toxicity_score:.1f}%) is primarily driven by elevated dosage/concentration "
@@ -466,16 +304,10 @@ async def predict_molecule(request: MoleculeRequest):
             )
     else:
         primary_driver = "Benign / Safe Molecular Profile"
-        if not toxicophore_alerts:
-            summary_text = (
-                f"Low predicted toxicity risk ({toxicity_score:.1f}%). No high-hazard structural alerts detected, "
-                f"and functional group interactions remain within safe physiological thresholds."
-            )
-        else:
-            summary_text = (
-                f"Low predicted toxicity risk ({toxicity_score:.1f}%) despite minor alerts, "
-                f"counterbalanced by favorable molecular topology and safe baseline profile."
-            )
+        summary_text = (
+            f"Low predicted toxicity risk ({toxicity_score:.1f}%). No high-hazard structural alerts detected, "
+            f"and functional group interactions remain within safe physiological thresholds."
+        )
     
     # Lookup compound name
     compound_name = get_compound_name(request.smiles)

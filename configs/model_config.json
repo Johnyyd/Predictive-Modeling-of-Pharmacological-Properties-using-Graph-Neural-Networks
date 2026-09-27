@@ -1,13 +1,13 @@
 {
   "num_node_features": 6,
-  "hidden_channels": 32,
+  "hidden_channels": 128,
   "num_classes": 13,
   "num_global_features": 11,
   "num_func_groups": 85,
-  "num_layers": 2,
-  "heads": 2,
-  "residual": false,
-  "fg_embed_dim": 8,
+  "num_layers": 4,
+  "heads": 4,
+  "residual": true,
+  "fg_embed_dim": 16,
   "tasks": [
     "NR-AR",
     "NR-AR-LBD",
@@ -25,5 +25,6 @@
   ],
   "ct_tox_index": 12,
   "concentration_feature": true,
-  "calibration_temperature": 4.0
+  "calibration_temperature": 0.5,
+  "weights_path": "pharma_gnn_production_state_dict.pt"
 }
