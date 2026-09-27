@@ -287,11 +287,14 @@ def get_or_build_graphs(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: p
 
 
 def evaluate_model(model: nn.Module, graphs: list, device: torch.device, 
-                   min_samples: int = 10, batch_size: int = 64) -> dict:
+                   min_samples: int = 10, batch_size: int = 64,
+                   return_loss: bool = False, pos_weight: torch.Tensor = None):
     """Evaluate model on graph list and calculate ROC-AUC per task using batched inference."""
     model.eval()
     all_preds = []
     all_labels = []
+    total_val_loss = 0.0
+    val_batches_count = 0
     
     loader = DataLoader(graphs, batch_size=batch_size, shuffle=False) if isinstance(graphs, list) else graphs
 
@@ -303,12 +306,22 @@ def evaluate_model(model: nn.Module, graphs: list, device: torch.device,
                 global_features=batch.global_features, func_group_features=batch.func_group_features,
                 concentration=batch.concentration
             )
+            if return_loss:
+                mask = ~torch.isnan(batch.y)
+                if mask.any():
+                    pw = pos_weight if pos_weight is not None else torch.tensor([5.0], device=device)
+                    l = F.binary_cross_entropy_with_logits(logits[mask], batch.y[mask], pos_weight=pw)
+                    total_val_loss += l.item()
+                    val_batches_count += 1
+
             preds = torch.sigmoid(logits)
             all_preds.append(preds.cpu().numpy())
             all_labels.append(batch.y.cpu().numpy())
     
+    avg_loss = (total_val_loss / val_batches_count) if val_batches_count > 0 else 0.0
+
     if not all_preds:
-        return {}
+        return ({}, avg_loss) if return_loss else {}
     
     all_preds = np.vstack(all_preds)
     all_labels = np.vstack(all_labels)
@@ -326,7 +339,7 @@ def evaluate_model(model: nn.Module, graphs: list, device: torch.device,
                 except Exception:
                     pass
     
-    return results
+    return (results, avg_loss) if return_loss else results
 
 
 def main(argv=None):
@@ -345,6 +358,8 @@ def main(argv=None):
     parser.add_argument("--lr-head", type=float, default=1e-3, help="Head & interaction learning rate")
     parser.add_argument("--pretrained-weights", type=str, default="pharma_gnn_pretrained_encoder.pt", help="Pretrained encoder checkpoint")
     parser.add_argument("--output-weights", type=str, default="pharma_gnn_finetuned.pt", help="Output model checkpoint")
+    parser.add_argument("--output-loss-plot", type=str, default="finetune_loss_curve.png", help="Path to save fine-tuning loss plot")
+    parser.add_argument("--output-auc-plot", type=str, default="finetune_auc_curve.png", help="Path to save fine-tuning ROC-AUC plot")
     parser.add_argument("--log-file", type=str, default="logs/phase3_finetune.log", help="Path to text log file")
     parser.add_argument("--metrics-file", type=str, default="logs/finetune_metrics.csv", help="Path to CSV metrics file")
     parser.add_argument("--no-cache", action="store_true", help="Disable disk graph caching")
@@ -444,6 +459,10 @@ def main(argv=None):
     best_val_auc = 0.0
     epochs_no_improve = 0
     start_time = time.time()
+    history_epochs = []
+    history_train_losses = []
+    history_val_losses = []
+    history_val_aucs = []
 
     for epoch in range(args.epochs):
         epoch_start = time.time()
@@ -497,14 +516,21 @@ def main(argv=None):
         avg_train_loss = float(np.mean(train_losses)) if train_losses else 0.0
 
         # Evaluate validation
-        val_aucs = evaluate_model(
+        val_aucs, avg_val_loss = evaluate_model(
             model, val_graphs, device,
             min_samples=2 if args.smoke_test else 10,
-            batch_size=args.eval_batch_size
+            batch_size=args.eval_batch_size,
+            return_loss=True,
+            pos_weight=pos_weight
         )
         avg_val_auc = float(np.mean(list(val_aucs.values()))) if val_aucs else 0.0
         epoch_time = time.time() - epoch_start
         total_elapsed = time.time() - start_time
+
+        history_epochs.append(epoch + 1)
+        history_train_losses.append(avg_train_loss)
+        history_val_losses.append(avg_val_loss)
+        history_val_aucs.append(avg_val_auc)
 
         is_best = avg_val_auc > best_val_auc
         if is_best:
@@ -518,7 +544,7 @@ def main(argv=None):
 
         logger.log(
             f"Epoch {epoch+1:2d}/{args.epochs} [{stage_name}] | "
-            f"Loss: {avg_train_loss:.4f} | Val AUC: {avg_val_auc:.4f} "
+            f"Loss: {avg_train_loss:.4f} (Val: {avg_val_loss:.4f}) | Val AUC: {avg_val_auc:.4f} "
             f"| Time: {format_duration(epoch_time)} | Total: {format_duration(total_elapsed)}"
             f"{best_mark}"
         )
@@ -574,6 +600,23 @@ def main(argv=None):
     logger.log(f"  • Checkpoint Saved     : {args.output_weights}")
     logger.log(f"  • Detailed Text Log    : {args.log_file}")
     logger.log(f"  • CSV Metrics Log      : {args.metrics_file}")
+
+    # Render and save Phase 3 downstream fine-tuning plots
+    try:
+        from pharma_gnn.visualization import plot_finetune_curves
+        plot_finetune_curves(
+            epochs=history_epochs,
+            train_losses=history_train_losses,
+            val_losses=history_val_losses,
+            val_aucs=history_val_aucs,
+            loss_path=args.output_loss_plot,
+            auc_path=args.output_auc_plot
+        )
+        logger.log(f"  • Finetune Loss Plot   : {args.output_loss_plot}")
+        logger.log(f"  • Finetune AUC Plot    : {args.output_auc_plot}")
+    except Exception as e:
+        logger.log(f"  [-] Warning saving fine-tuning plots: {e}")
+
     logger.log("=" * 75)
     return True
 

@@ -23,6 +23,12 @@ from pharma_gnn.security import (
     PREDICT_RATE_LIMIT
 )
 from pharma_gnn.config import load_model_config
+from pharma_gnn.visualization import (
+    plot_pretrain_progression,
+    plot_finetune_curves,
+    BENCHMARK_PRETRAIN_HISTORY,
+    BENCHMARK_FINETUNE_HISTORY
+)
 
 __version__ = "2.1.0"
 __all__ = [
@@ -44,4 +50,8 @@ __all__ = [
     "DEFAULT_RATE_LIMIT",
     "PREDICT_RATE_LIMIT",
     "load_model_config",
+    "plot_pretrain_progression",
+    "plot_finetune_curves",
+    "BENCHMARK_PRETRAIN_HISTORY",
+    "BENCHMARK_FINETUNE_HISTORY",
 ]

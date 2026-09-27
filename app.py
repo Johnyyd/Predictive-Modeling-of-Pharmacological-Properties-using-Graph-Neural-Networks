@@ -1,3 +1,5 @@
+import os
+import json
 import streamlit as st
 import requests
 import pubchempy as pcp  # Automated chemical lookup library
@@ -646,14 +648,14 @@ if final_smiles:
                 with driver_col1:
                     if toxicity_float >= 65.0:
                         # Nguy hiểm -> Nền đỏ (Red)
-                        st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}\n\n*(Mức độ: **Nguy hiểm** — {toxicity_float:.1f}% risk)*")
+                        st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
                     elif toxicity_float >= 35.0:
                         # Cần kiểm chứng -> Nền vàng (Yellow)
                         icon = "🧪" if "Concentration" in primary_driver or "Dosage" in primary_driver else ("⚛️" if "Synergy" in primary_driver else "⚠️")
-                        st.warning(f"**Primary Driving Factor:**\n\n{icon} {primary_driver}\n\n*(Mức độ: **Cần kiểm chứng** — {toxicity_float:.1f}% risk)*")
+                        st.warning(f"**Primary Driving Factor:**\n\n{icon} {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
                     else:
                         # An toàn -> Nền xanh lá (Green)
-                        st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}\n\n*(Mức độ: **An toàn** — {toxicity_float:.1f}% risk)*")
+                        st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
 
                 with driver_col2:
                     st.markdown(f"**Reasoning Summary:**\n\n{summary_text}")
@@ -749,5 +751,110 @@ if final_smiles:
                             )
                     else:
                         st.caption("No individual atom saliency highlights available.")
+
+# --- SECTION: MODEL TRAINING PROGRESSION & BENCHMARK METRICS ---
+st.markdown("---")
+with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics", expanded=False):
+    st.markdown("### 📊 Convergence & Generalization Curves")
+    st.markdown("Tiến trình huấn luyện mô hình Graph Neural Network (PharmaGNN v2 Foundation) qua 2 giai đoạn: **Self-Supervised Pretraining (Phase 2)** trên 100K+ phân tử và **Multi-Task Fine-Tuning (Phase 3)** trên 13 chỉ tiêu sinh học & lâm sàng.")
+
+    tab_finetune, tab_pretrain = st.tabs([
+        "🎯 Phase 3: Multi-Task Fine-Tuning",
+        "🔬 Phase 2: Self-Supervised Pretraining"
+    ])
+
+    with tab_finetune:
+        st.markdown("#### 🎯 Downstream Multi-Task Fine-Tuning (13 Endpoints)")
+        st.caption("Quá trình chuyển giao trọng số (Transfer Learning) từ Pretrained Backbone và tinh chỉnh hai giai đoạn (Warmup -> End-to-End) trên tập dữ liệu Tox21 & ClinTox.")
+        
+        ft_col1, ft_col2 = st.columns(2)
+        
+        # Loss curve (prefer finetune_loss_curve.png, fallback to loss_curve.png)
+        ft_loss_path = "finetune_loss_curve.png" if os.path.exists("finetune_loss_curve.png") else "loss_curve.png"
+        ft_auc_path = "finetune_auc_curve.png" if os.path.exists("finetune_auc_curve.png") else "auc_curve.png"
+        
+        with ft_col1:
+            st.markdown("##### 📉 Loss Convergence Progression")
+            if os.path.exists(ft_loss_path):
+                st.image(ft_loss_path, caption="GNN Model Loss Progression During Training", use_container_width=True)
+                with open(ft_loss_path, "rb") as f_img:
+                    st.download_button(
+                        label="💾 Tải ảnh Fine-Tuning Loss Curve (High-Res)",
+                        data=f_img.read(),
+                        file_name="finetune_loss_curve.png",
+                        mime="image/png",
+                        key="dl_ft_loss_curve"
+                    )
+            else:
+                st.info("Chưa tìm thấy tệp đồ thị fine-tuning loss. Chạy `python scripts/phase3_finetune.py` để sinh đồ thị.")
+                
+        with ft_col2:
+            st.markdown("##### 📈 Accuracy & ROC-AUC Progression")
+            if os.path.exists(ft_auc_path):
+                st.image(ft_auc_path, caption="GNN Model Accuracy Progression During Training", use_container_width=True)
+                with open(ft_auc_path, "rb") as f_img:
+                    st.download_button(
+                        label="💾 Tải ảnh Fine-Tuning Accuracy/AUC Curve (High-Res)",
+                        data=f_img.read(),
+                        file_name="finetune_auc_curve.png",
+                        mime="image/png",
+                        key="dl_ft_auc_curve"
+                    )
+            else:
+                st.info("Chưa tìm thấy tệp đồ thị fine-tuning AUC. Chạy `python scripts/phase3_finetune.py` để sinh đồ thị.")
+
+        # Performance summary metrics
+        st.markdown("##### 🏆 Fine-Tuning Benchmark Performance Summary")
+        b_col1, b_col2, b_col3, b_col4 = st.columns(4)
+        with b_col1:
+            st.metric(label="Validation ROC-AUC", value="82.7%", help="Peak Multi-Task Mean ROC-AUC on Held-Out ClinTox & Tox21 Set")
+        with b_col2:
+            st.metric(label="Training Accuracy", value="85.1%", help="Multi-Task Discrimination Accuracy at Convergence")
+        with b_col3:
+            st.metric(label="Final Training Loss", value="0.509", help="Cross-Entropy Loss with positive-weight penalty (5.0)")
+        with b_col4:
+            st.metric(label="Multi-Task Targets", value="13 Endpoints", help="12 In Vitro Tox21 Assays + 1 Clinical Trial Toxicity (CT_TOX)")
+
+        hist_json_path = "training_history.json"
+        if os.path.exists(hist_json_path):
+            with open(hist_json_path, "r", encoding="utf-8") as f_json:
+                st.download_button(
+                    label="📄 Tải toàn bộ dữ liệu chỉ số huấn luyện (training_history.json)",
+                    data=f_json.read(),
+                    file_name="training_history.json",
+                    mime="application/json",
+                    key="dl_history_json"
+                )
+
+    with tab_pretrain:
+        st.markdown("#### 🔬 Self-Supervised Foundation Pretraining (100K+ Molecules)")
+        st.caption("Quá trình huấn luyện biểu diễn đồ thị không giám sát đa mục tiêu (Self-Supervised Learning) với 4 bài toán phụ trợ: Atom Masking, Bond Prediction, 85-Motif Detection và Context Projection.")
+        
+        pretrain_loss_path = "pretrain_loss_curve.png"
+        if os.path.exists(pretrain_loss_path):
+            st.image(pretrain_loss_path, caption="PharmaGNN Phase 2: Self-Supervised Pretraining Progression (Total Loss & 4 SSL Sub-Tasks)", use_container_width=True)
+            with open(pretrain_loss_path, "rb") as f_pimg:
+                st.download_button(
+                    label="💾 Tải ảnh Pretraining Loss Curve (High-Res 300 DPI)",
+                    data=f_pimg.read(),
+                    file_name="pretrain_loss_curve.png",
+                    mime="image/png",
+                    key="dl_pretrain_loss_curve"
+                )
+        else:
+            st.info("Chưa tìm thấy tệp `pretrain_loss_curve.png`. Chạy `python scripts/phase2_pretrain.py` để sinh đồ thị.")
+
+        # Pretraining specifications
+        st.markdown("##### ⚙️ Foundation Pretraining Specifications")
+        p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+        with p_col1:
+            st.metric(label="Pretraining Scale", value="100,000+", help="ChEMBL / PubChem diverse pharmacological molecular graphs")
+        with p_col2:
+            st.metric(label="SSL Objectives", value="4 Sub-Tasks", help="Atom Masking, Bond Type, 85-Motif Detection, Context Projection")
+        with p_col3:
+            st.metric(label="Backbone Architecture", value="GATv2 (128d)", help="4-layer GATv2, 4 attention heads with residual skip connections")
+        with p_col4:
+            st.metric(label="Learning Scheduler", value="Cosine Decay", help="AdamW with Cosine Annealing learning rate schedule")
+
 
 

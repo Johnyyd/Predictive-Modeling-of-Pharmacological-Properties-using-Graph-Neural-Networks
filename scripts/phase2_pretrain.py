@@ -506,6 +506,7 @@ def main(argv=None):
     parser.add_argument("--metrics-file", type=str, default="logs/pretrain_metrics.csv", help="Path to CSV metrics file")
     parser.add_argument("--num-threads", type=int, default=2, help="PyTorch intra-op CPU threads (2 is optimal for Intel Xeon)")
     parser.add_argument("--output-weights", type=str, default="pharma_gnn_pretrained_encoder.pt", help="Path to save pretrained encoder weights")
+    parser.add_argument("--output-plot", type=str, default="pretrain_loss_curve.png", help="Path to save pretraining progression plot")
     args = parser.parse_args(argv)
 
     if torch.cuda.is_available():
@@ -593,6 +594,7 @@ def main(argv=None):
     best_epoch = 0
     epochs_no_improve = 0
     train_history = []
+    sub_losses_history = {'atom': [], 'bond': [], 'motif': [], 'context': []}
 
     for epoch in range(args.epochs):
         model.train()
@@ -724,6 +726,8 @@ def main(argv=None):
             best_val_loss=best_val_loss,
             is_best=is_best
         )
+        for k in sub_losses_history:
+            sub_losses_history[k].append(epoch_sub.get(k, 0.0))
 
         scheduler.step()
 
@@ -737,6 +741,22 @@ def main(argv=None):
     logger.log(f"  • Checkpoint Saved     : {args.output_weights}")
     logger.log(f"  • Detailed Text Log    : {args.log_file}")
     logger.log(f"  • CSV Metrics Log      : {args.metrics_file}")
+
+    # Render and save Pretraining progression plot
+    try:
+        from pharma_gnn.visualization import plot_pretrain_progression
+        output_plot = getattr(args, 'output_plot', 'pretrain_loss_curve.png')
+        plot_pretrain_progression(
+            epochs=list(range(1, len(train_history) + 1)),
+            train_losses=[x[0] for x in train_history],
+            val_losses=[x[1] for x in train_history],
+            sub_losses=sub_losses_history,
+            output_path=output_plot
+        )
+        logger.log(f"  • Pretrain Plot Saved  : {output_plot}")
+    except Exception as e:
+        logger.log(f"  [-] Warning saving pretraining plot: {e}")
+
     logger.log("=" * 75)
 
     if args.smoke_test and len(train_history) >= 2:

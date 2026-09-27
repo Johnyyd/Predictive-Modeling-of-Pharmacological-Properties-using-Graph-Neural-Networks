@@ -92,12 +92,12 @@ def test_app_shows_decision_attribution_when_data_present():
     assert "Key Influential Atoms" in combined_markdown
 
 
-@pytest.mark.parametrize("risk_str,expected_callout,expected_label", [
-    ("20.0%", "success", "An toàn"),
-    ("45.0%", "warning", "Cần kiểm chứng"),
-    ("85.0%", "error", "Nguy hiểm"),
+@pytest.mark.parametrize("risk_str,expected_callout", [
+    ("20.0%", "success"),
+    ("45.0%", "warning"),
+    ("85.0%", "error"),
 ])
-def test_primary_driving_factor_risk_tier_colors(risk_str, expected_callout, expected_label):
+def test_primary_driving_factor_risk_tier_colors(risk_str, expected_callout):
     """Verify that Primary Driving Factor displays with Green (success), Yellow (warning), and Red (error)."""
     at = AppTest.from_file("../app.py", default_timeout=30)
     at.run()
@@ -138,10 +138,10 @@ def test_primary_driving_factor_risk_tier_colors(risk_str, expected_callout, exp
     assert not at.exception
     if expected_callout == "success":
         success_texts = [s.value for s in at.success]
-        assert any("Primary Driving Factor" in s and expected_label in s for s in success_texts)
+        assert any("Primary Driving Factor" in s for s in success_texts)
     elif expected_callout == "warning":
         warning_texts = [w.value for w in at.warning]
-        assert any("Primary Driving Factor" in w and expected_label in w for w in warning_texts)
+        assert any("Primary Driving Factor" in w for w in warning_texts)
     elif expected_callout == "error":
         error_texts = [e.value for e in at.error]
-        assert any("Primary Driving Factor" in e and expected_label in e for e in error_texts)
+        assert any("Primary Driving Factor" in e for e in error_texts)

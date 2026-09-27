@@ -21,6 +21,11 @@ services:
       - "8501:8501"
     volumes:
       - ./app.py:/app/app.py
+      - ./pretrain_loss_curve.png:/app/pretrain_loss_curve.png
+      - ./finetune_loss_curve.png:/app/finetune_loss_curve.png
+      - ./finetune_auc_curve.png:/app/finetune_auc_curve.png
+      - ./loss_curve.png:/app/loss_curve.png
+      - ./auc_curve.png:/app/auc_curve.png
     environment:
       - API_URL=http://backend:1234/api/predict
       - PYTHONUNBUFFERED=1
