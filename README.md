@@ -328,20 +328,20 @@ The script will:
 ### 3. Extended Training Pipeline (`scripts/` & `run_pipeline.py`)
 For larger-scale foundation-tier workflows, the multi-phase training pipeline automates self-supervised pretraining, multi-task transfer learning, calibration, and production packaging:
 
-| Giai đoạn (Phase) | Script thực thi | Trọng số / Artifact sinh ra | Mô tả chi tiết |
+| Pipeline Phase | Execution Script | Generated Checkpoint / Artifact | Description |
 | :--- | :--- | :--- | :--- |
-| **Phase 1: Dataset Build** | `scripts/phase1_build_dataset.py` | `data/comptox_pretrain.csv` | Thu thập và chuẩn hóa 100.000 hợp chất hữu cơ từ CompTox 3.0. |
-| **Phase 2: Pretraining** | `scripts/phase2_pretrain.py` | `pharma_gnn_pretrained_encoder.pt` | Self-supervised masked atom & functional group pretraining (6h runtime). |
-| **Phase 3: Fine-tuning** | `scripts/phase3_finetune.py` | `pharma_gnn_finetuned.pt` | Huấn luyện đa nhiệm 30 epochs trên 13 tasks (Tox21 + ClinTox), đạt **Macro Test ROC-AUC = 0.8146 (81.46%)**. |
-| **Phase 4: Calibration** | `scripts/phase4_calibration.py` | `calibration_info.json` | Tối ưu nhiệt độ $T=0.5$, giảm sai số hiệu chuẩn ECE từ 18.0% xuống **11.5%**. |
-| **Phase 5: Deployment** | `scripts/phase5_deployment.py` | 🎯 `pharma_gnn_production_state_dict.pt` | **Mô hình chính thức hoàn thành toàn bộ pipeline**, đi kèm `model_config.json`. |
+| **Phase 1: Dataset Build** | `scripts/phase1_build_dataset.py` | `data/comptox_pretrain.csv` | Curate and standardize a representative subset of 100,000 organic compounds from CompTox 3.0. |
+| **Phase 2: Pretraining** | `scripts/phase2_pretrain.py` | `pharma_gnn_pretrained_encoder.pt` | Self-supervised masked atom & functional group pretraining (~6h runtime). |
+| **Phase 3: Fine-tuning** | `scripts/phase3_finetune.py` | `pharma_gnn_finetuned.pt` | Two-stage multi-task transfer learning across 13 endpoints (Tox21 + ClinTox), achieving **Macro Test ROC-AUC = 0.8146 (81.46%)**. |
+| **Phase 4: Calibration** | `scripts/phase4_calibration.py` | `calibration_info.json` | Temperature scaling ($T=0.5$), decreasing expected calibration error (ECE) from 18.0% to **11.5%**. |
+| **Phase 5: Deployment** | `scripts/phase5_deployment.py` | 🎯 `pharma_gnn_production_state_dict.pt` | **Official production model checkpoint**, bundled with `model_config.json`. |
 
 > [!NOTE]
-> **Lưu ý về Giới hạn Phần cứng (Hardware Constraints & Reproducibility Note):**
-> Do điều kiện và tài nguyên phần cứng tính toán có giới hạn (môi trường máy tính cá nhân/GPU đơn lẻ thay vì hạ tầng cụm GPU/TPU cluster công nghiệp), tác giả đã tối ưu hóa pipeline huấn luyện tốt nhất có thể trong phạm vi tài nguyên hiện có:
-> - Áp dụng tập con **100.000 hợp chất đại diện** từ CompTox 3.0 cho Phase 2 Pretraining (thay vì toàn bộ 760.000 hợp chất) để hoàn thành trong ~6 giờ tính toán.
-> - Huấn luyện mô hình đạt **Macro Test ROC-AUC = 0.8146 (81.46%)** trên 13 biological tasks với kiến trúc 128 hidden channels, 4 GATv2 layers và 4 attention heads.
-> - Kết quả này phản ánh năng lực dự đoán tối ưu nhất đạt được trong điều kiện giới hạn phần cứng hiện tại của tác giả, đồng thời cung cấp kiến trúc mã nguồn mở hoàn chỉnh để cộng đồng có thể dễ dàng scale up trên hạ tầng mạnh mẽ hơn.
+> **Hardware Constraints & Reproducibility Note:**
+> Due to limited computational hardware resources (a single personal workstation/consumer GPU environment rather than an enterprise GPU/TPU cluster), the author optimized the training pipeline to achieve the highest possible performance within available constraints:
+> - **Representative Pretraining Subset**: Trained on a curated representative subset of **100,000 compounds** from CompTox 3.0 for Phase 2 Self-Supervised Pretraining (instead of the complete 760,000-compound library) to finish within ~6 hours of compute time.
+> - **Optimal Performance Achieved**: The resulting model achieves a **Macro Test ROC-AUC of 0.8146 (81.46%)** across 13 biological tasks with a 128-hidden-channel backbone, 4 GATv2 layers, and 4 attention heads.
+> - **Empirical Ceiling & Scalability**: These results reflect the optimal predictive capacity attainable under the author's local hardware limits, while providing an end-to-end open-source architecture that the community can seamlessly scale up on more powerful computing infrastructure.
 
 ---
 
@@ -353,7 +353,7 @@ For larger-scale foundation-tier workflows, the multi-phase training pipeline au
 ├── main.py                            # FastAPI backend REST service, DoS protection & GNNExplainer
 ├── model.py                           # PyTorch Geometric PharmaGNN entry point (re-exports pharma_gnn.model)
 ├── train.py                           # Multi-task GNN baseline training script
-├── run_pipeline.py                    # Orchestrator pipeline tự động chạy từ Phase 1 đến Phase 5
+├── run_pipeline.py                    # Orchestrator pipeline automating Phase 1 through Phase 5
 │
 ├── 📦 pharma_gnn/                      # Core modular Python package
 │   ├── __init__.py                    # Public package exports
@@ -363,16 +363,16 @@ For larger-scale foundation-tier workflows, the multi-phase training pipeline au
 │   └── config.py                      # Centralized configuration loader
 │
 ├── 🏆 MODEL CHECKPOINTS:
-│   ├── pharma_gnn_production_state_dict.pt  # [CHÍNH THỨC] Mô hình hoàn thành toàn bộ 5 Phase (128d, 4 layers, 4 heads)
-│   ├── pharma_gnn_finetuned.pt              # Checkpoint sau Phase 3 Fine-tuning (ROC-AUC 81.46%)
-│   ├── pharma_gnn_pretrained_encoder.pt     # Checkpoint sau Phase 2 Pretraining (100k hợp chất CompTox)
-│   └── pharma_gnn_weights_universal.pt      # Bản baseline cũ v1 (32d, 2 layers, ~9k mẫu)
+│   ├── pharma_gnn_production_state_dict.pt  # [OFFICIAL] Complete 5-phase production foundation model (128d, 4 layers, 4 heads)
+│   ├── pharma_gnn_finetuned.pt              # Checkpoint after Phase 3 Fine-tuning (ROC-AUC 81.46%)
+│   ├── pharma_gnn_pretrained_encoder.pt     # Checkpoint after Phase 2 Pretraining (100k CompTox compounds)
+│   └── pharma_gnn_weights_universal.pt      # Legacy baseline v1 checkpoint (32d, 2 layers, ~9k samples)
 │
 ├── ⚙️ CONFIGURATION & CALIBRATION (configs/ & root):
 │   ├── configs/                             # Centralized configs directory
-│   ├── model_config.json                    # Cấu hình hyperparameters & đường dẫn weights production
-│   ├── calibration_info.json                # Thông số Temperature Scaling & kiểm định hóa học
-│   ├── deployment_summary.json              # Tổng kết triển khai Phase 5
+│   ├── model_config.json                    # Production hyperparameters & weights configuration
+│   ├── calibration_info.json                # Temperature scaling parameters & chemical validation
+│   ├── deployment_summary.json              # Phase 5 deployment summary report
 │   └── monitoring_config.json               # Cấu hình giám sát độ trôi dữ liệu (Data drift)
 │
 ├── requirements.txt                   # Python dependencies specification
