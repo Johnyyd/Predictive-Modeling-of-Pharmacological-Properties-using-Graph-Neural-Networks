@@ -31,3 +31,45 @@ services:
       - PYTHONUNBUFFERED=1
     depends_on:
       - backend
+
+  tailscale-frontend:
+    build:
+      context: ./tailscale
+      dockerfile: Dockerfile.tailscale
+    container_name: pharmagraph
+    hostname: pharmagraph
+    restart: always
+    environment:
+      - TS_AUTHKEY=tskey-auth-kMvFmVxPpg11CNTRL-dWkCF7p8tLFLXHhgSqzsKFc5bp7aHEYf
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_TARGET_HOST=frontend
+      - TS_TARGET_PORT=8501
+      - TS_FUNNEL_PORT=443
+    volumes:
+      - ts_frontend_state:/var/lib/tailscale
+    depends_on:
+      - frontend
+
+  # Tailscale Public Proxy for Backend (Johnyyd/tailscale_public_url pattern)
+  tailscale-backend:
+    build:
+      context: ./tailscale
+      dockerfile: Dockerfile.tailscale
+    container_name: pharmagraph-ts
+    hostname: pharmagraph-ts
+    restart: always
+    environment:
+      - TS_AUTHKEY=tskey-auth-kMvFmVxPpg11CNTRL-dWkCF7p8tLFLXHhgSqzsKFc5bp7aHEYf
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_TARGET_HOST=backend
+      - TS_TARGET_PORT=1234
+      - TS_FUNNEL_PORT=7443
+    volumes:
+      - ts_backend_state:/var/lib/tailscale
+    depends_on:
+      - backend
+
+volumes:
+  ts_frontend_state:
+  ts_backend_state:
+

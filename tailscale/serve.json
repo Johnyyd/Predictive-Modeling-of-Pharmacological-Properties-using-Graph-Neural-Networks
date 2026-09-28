@@ -1,0 +1,16 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "${TS_HOSTNAME}.tailscale.net:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://${TS_TARGET_HOST}:${TS_TARGET_PORT}"
+        }
+      }
+    }
+  }
+}

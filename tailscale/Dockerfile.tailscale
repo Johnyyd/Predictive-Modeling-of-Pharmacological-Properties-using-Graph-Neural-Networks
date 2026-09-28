@@ -1,0 +1,12 @@
+FROM tailscale/tailscale:latest
+
+USER root
+
+RUN apk add --no-cache gettext jq bash
+
+COPY serve.json /etc/tailscale/serve.json
+COPY entrypoint.sh /entrypoint.sh
+
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
