@@ -1,57 +1,57 @@
 {
   "optimal_temperature": 0.5,
-  "ece_before": 0.21103147998038577,
-  "ece_after": 0.14798890011672822,
-  "brier_before": 0.12609662115573883,
-  "brier_after": 0.12519362953545257,
+  "ece_before": 0.22001676019965843,
+  "ece_after": 0.1508326807716638,
+  "brier_before": 0.12465596199035645,
+  "brier_after": 0.11815988412744259,
   "chemical_sanity_checks": {
     "ATP": {
-      "prob": 0.354026734828949,
-      "passed": true,
+      "prob": 0.6631226539611816,
+      "passed": false,
       "category": "Endogenous Nucleotide"
     },
     "Cyanide": {
-      "prob": 0.3011697232723236,
+      "prob": 0.31304723024368286,
       "passed": true,
       "category": "Metabolic Poison"
     },
     "Sarin": {
-      "prob": 0.2109544724225998,
+      "prob": 0.19997788965702057,
       "passed": true,
       "category": "Organophosphate Nerve Agent"
     },
     "Water": {
-      "prob": 0.30451202392578125,
-      "passed": false,
+      "prob": 1.43618772199261e-05,
+      "passed": true,
       "category": "Solvent/Excipient"
     },
     "Glucose": {
-      "prob": 0.13086047768592834,
+      "prob": 0.1730639636516571,
       "passed": true,
       "category": "Nutrient Metabolite"
     },
     "NaCl": {
-      "prob": 0.1883154958486557,
+      "prob": 0.12459472566843033,
       "passed": true,
       "category": "Mineral Salt"
     },
     "Glycine": {
-      "prob": 0.24877268075942993,
+      "prob": 0.24807284772396088,
       "passed": true,
       "category": "Amino Acid"
     },
     "Aspirin": {
-      "prob": 0.345354288816452,
+      "prob": 0.17803128063678741,
       "passed": true,
       "category": "Pharmaceutical (Safe Excipient/Analgesic)"
     },
     "Phenol_Dilute": {
-      "prob": 0.5373350381851196,
+      "prob": 0.0022568043787032366,
       "passed": true,
       "category": "Phenolic (Dilute)"
     },
     "Phenol_Concentrated": {
-      "prob": 0.5500863194465637,
+      "prob": 0.0026003452949225903,
       "passed": true,
       "category": "Phenolic (Concentrated Burn Risk)"
     }

@@ -8,6 +8,7 @@ from scripts.phase2_pretrain import (
     PharmaGNN_Pretrain,
     smiles_to_pretrain_graph,
     pretrain_masking,
+    apply_vectorized_batch_masking,
     pretrain_loss,
     NUM_ATOM_TYPES,
     NUM_BOND_TYPES,
@@ -107,4 +108,45 @@ def test_pretrain_masking_epoch_independence():
         # Verify masked g.x retains unmasked node features (~85%)
         unmasked_nonzero = (g.x != 0).sum().item()
         assert unmasked_nonzero >= int(initial_nonzero * 0.70)
+
+
+def test_vectorized_batch_masking():
+    """Verify that apply_vectorized_batch_masking operates correctly across batches."""
+    from torch_geometric.data import Batch
+    smiles_list = ["CCO", "CC(=O)Oc1ccccc1C(=O)O", "c1ccccc1O", "CCN"]
+    graphs = [smiles_to_pretrain_graph(s) for s in smiles_list]
+    batch = Batch.from_data_list(graphs)
+    
+    assert hasattr(batch, 'raw_x')
+    initial_raw_nonzero = (batch.raw_x != 0).sum().item()
+    
+    # Apply vectorized masking
+    masked_batch = apply_vectorized_batch_masking(batch, mask_rate=0.20)
+    
+    assert len(masked_batch.masked_atom_indices) > 0
+    assert len(masked_batch.masked_atom_labels) == len(masked_batch.masked_atom_indices)
+    assert len(masked_batch.masked_bond_indices) > 0
+    assert len(masked_batch.masked_bond_labels) == len(masked_batch.masked_bond_indices)
+    
+    # Check that raw_x is unchanged and x has masked tokens
+    assert (masked_batch.raw_x != 0).sum().item() == initial_raw_nonzero
+    assert (masked_batch.x[masked_batch.masked_atom_indices] == 0.0).all()
+    
+    # Verify forward and loss pass cleanly
+    model = PharmaGNN_Pretrain(
+        num_node_features=6,
+        hidden_channels=32,
+        num_layers=2,
+        heads=2,
+        residual=True
+    )
+    outputs = model.forward_pretrain(
+        masked_batch.x, masked_batch.edge_index, masked_batch.edge_attr, masked_batch.batch,
+        masked_batch.global_features, masked_batch.func_group_features, masked_batch.concentration,
+        masked_batch.masked_atom_indices, masked_batch.masked_bond_indices
+    )
+    loss, loss_dict = pretrain_loss(outputs, masked_batch)
+    assert loss.item() > 0.0
+    assert 'atom' in loss_dict
+    assert 'bond' in loss_dict
 
