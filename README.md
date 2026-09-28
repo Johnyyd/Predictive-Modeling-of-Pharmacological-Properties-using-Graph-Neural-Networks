@@ -735,7 +735,7 @@ To address the computational demands of pretraining large molecular graphs on st
 │   ├── model_config.json                    # Production hyperparameters & weights configuration
 │   ├── calibration_info.json                # Temperature scaling parameters & chemical validation
 │   ├── deployment_summary.json              # Phase 5 deployment summary report
-│   └── monitoring_config.json               # Cấu hình giám sát độ trôi dữ liệu (Data drift)
+│   └── monitoring_config.json               # Production data drift monitoring configuration
 │
 ├── requirements.txt                   # Python dependencies specification
 ├── Dockerfile.backend                 # Docker container for FastAPI backend

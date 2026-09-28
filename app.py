@@ -618,13 +618,13 @@ if final_smiles:
                 toxicity_float = float(toxicity_str.replace("%", ""))
                 
                 if toxicity_float >= 65.0:
-                    st.metric(label="Toxicity Risk 🛑", value=toxicity_str, delta="CRITICAL RISK (Nguy hiểm)", delta_color="inverse")
+                    st.metric(label="Toxicity Risk 🛑", value=toxicity_str, delta="CRITICAL RISK", delta_color="inverse")
                     st.error("Warning: This compound presents a severe biological toxicity risk. Structural toxicophores detected.")
                 elif toxicity_float >= 35.0:
-                    st.metric(label="Toxicity Risk ⚠️", value=toxicity_str, delta="Moderate Concern (Cần kiểm chứng)", delta_color="off")
+                    st.metric(label="Toxicity Risk ⚠️", value=toxicity_str, delta="Moderate Concern", delta_color="off")
                     st.warning("Structure contains potential toxicophores or alerts. Experimental / clinical assessment advised.")
                 else:
-                    st.metric(label="Toxicity Risk ✅", value=toxicity_str, delta="Low Concern / Safe (An toàn)", delta_color="normal")
+                    st.metric(label="Toxicity Risk ✅", value=toxicity_str, delta="Low Concern / Safe", delta_color="normal")
                     st.success("Stable structure. No critical toxicity hazards detected based on reference database.")
                     
                 st.progress(int(toxicity_float))
@@ -648,14 +648,14 @@ if final_smiles:
                 driver_col1, driver_col2 = st.columns([1, 2.2])
                 with driver_col1:
                     if toxicity_float >= 65.0:
-                        # Nguy hiểm -> Nền đỏ (Red)
+                        # High risk -> Red callout
                         st.error(f"**Primary Driving Factor:**\n\n🚨 {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
                     elif toxicity_float >= 35.0:
-                        # Cần kiểm chứng -> Nền vàng (Yellow)
+                        # Moderate concern -> Yellow callout
                         icon = "🧪" if "Concentration" in primary_driver or "Dosage" in primary_driver else ("⚛️" if "Synergy" in primary_driver else "⚠️")
                         st.warning(f"**Primary Driving Factor:**\n\n{icon} {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
                     else:
-                        # An toàn -> Nền xanh lá (Green)
+                        # Low concern -> Green callout
                         st.success(f"**Primary Driving Factor:**\n\n✅ {primary_driver}\n\n*(risk: **{toxicity_float:.1f}%**)*")
 
                 with driver_col2:
@@ -757,7 +757,7 @@ if final_smiles:
 st.markdown("---")
 with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics", expanded=False):
     st.markdown("### 📊 Convergence & Generalization Curves")
-    st.markdown("Tiến trình huấn luyện mô hình Graph Neural Network (PharmaGNN v2 Foundation) qua 2 giai đoạn: **Self-Supervised Pretraining (Phase 2)** trên 100K+ phân tử và **Multi-Task Fine-Tuning (Phase 3)** trên 13 chỉ tiêu sinh học & lâm sàng.")
+    st.markdown("Training progression of the Graph Neural Network (**PharmaGNN v2 Foundation**) across two stages: **Self-Supervised Pretraining (Phase 2)** on 100K+ molecules and **Multi-Task Fine-Tuning (Phase 3)** across 13 biological & clinical endpoints.")
 
     tab_finetune, tab_pretrain = st.tabs([
         "🎯 Phase 3: Multi-Task Fine-Tuning",
@@ -766,7 +766,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
 
     with tab_finetune:
         st.markdown("#### 🎯 Downstream Multi-Task Fine-Tuning (13 Endpoints)")
-        st.caption("Quá trình chuyển giao trọng số (Transfer Learning) từ Pretrained Backbone và tinh chỉnh hai giai đoạn (Warmup -> End-to-End) trên tập dữ liệu Tox21 & ClinTox.")
+        st.caption("Pretrained backbone encoder weight transfer and two-stage schedule (Warmup -> End-to-End) on the combined Tox21 & ClinTox benchmark datasets.")
         
         ft_col1, ft_col2 = st.columns(2)
         
@@ -780,14 +780,14 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
                 st.image(ft_loss_path, caption="GNN Model Loss Progression During Training", use_container_width=True)
                 with open(ft_loss_path, "rb") as f_img:
                     st.download_button(
-                        label="💾 Tải ảnh Fine-Tuning Loss Curve (High-Res)",
+                        label="💾 Download Fine-Tuning Loss Curve (High-Res)",
                         data=f_img.read(),
                         file_name="finetune_loss_curve.png",
                         mime="image/png",
                         key="dl_ft_loss_curve"
                     )
             else:
-                st.info("Chưa tìm thấy tệp đồ thị fine-tuning loss. Chạy `python scripts/phase3_finetune.py` để sinh đồ thị.")
+                st.info("Fine-tuning loss plot not found. Run `python scripts/phase3_finetune.py` to generate the curve.")
                 
         with ft_col2:
             st.markdown("##### 📈 Accuracy & ROC-AUC Progression")
@@ -795,14 +795,14 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
                 st.image(ft_auc_path, caption="GNN Model Accuracy Progression During Training", use_container_width=True)
                 with open(ft_auc_path, "rb") as f_img:
                     st.download_button(
-                        label="💾 Tải ảnh Fine-Tuning Accuracy/AUC Curve (High-Res)",
+                        label="💾 Download Fine-Tuning ROC-AUC Curve (High-Res)",
                         data=f_img.read(),
                         file_name="finetune_auc_curve.png",
                         mime="image/png",
                         key="dl_ft_auc_curve"
                     )
             else:
-                st.info("Chưa tìm thấy tệp đồ thị fine-tuning AUC. Chạy `python scripts/phase3_finetune.py` để sinh đồ thị.")
+                st.info("Fine-tuning ROC-AUC plot not found. Run `python scripts/phase3_finetune.py` to generate the curve.")
 
         # Performance summary metrics
         st.markdown("##### 🏆 Fine-Tuning Benchmark Performance Summary")
@@ -818,7 +818,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
 
         # Detailed breakdown table
         st.markdown("##### 🔬 Empirical Test Performance per Target Endpoint")
-        st.caption("Đánh giá độc lập trên tập thử nghiệm kiểm thử (Held-Out Test Set, 444 phân tử) qua 13 chỉ tiêu sinh học & lâm sàng:")
+        st.caption("Independent evaluation on held-out test split (444 compounds) across 13 biological & clinical target endpoints:")
 
         benchmark_data = [
             {"Endpoint": "NR-AR-LBD", "Biological Target": "Androgen Receptor (Ligand Binding Domain)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.9717, "Performance Tier": "⭐⭐⭐ S-Tier (Elite)"},
@@ -860,7 +860,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
             if os.path.exists(ft_csv_path):
                 with open(ft_csv_path, "r", encoding="utf-8") as f_csv:
                     st.download_button(
-                        label="📄 Tải bảng chỉ số huấn luyện (finetune_metrics.csv)",
+                        label="📄 Download Fine-Tuning Metrics (CSV)",
                         data=f_csv.read(),
                         file_name="finetune_metrics.csv",
                         mime="text/csv",
@@ -871,7 +871,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
             if os.path.exists(ft_log_path):
                 with open(ft_log_path, "r", encoding="utf-8") as f_log:
                     st.download_button(
-                        label="📝 Tải nhật ký chi tiết (phase3_finetune.log)",
+                        label="📝 Download Fine-Tuning Log (Text)",
                         data=f_log.read(),
                         file_name="phase3_finetune.log",
                         mime="text/plain",
@@ -880,21 +880,21 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
 
     with tab_pretrain:
         st.markdown("#### 🔬 Self-Supervised Foundation Pretraining (100K+ Molecules)")
-        st.caption("Quá trình huấn luyện biểu diễn đồ thị không giám sát đa mục tiêu (Self-Supervised Learning) với 4 bài toán phụ trợ: Atom Masking, Bond Prediction, 85-Motif Detection và Context Projection.")
+        st.caption("Multi-objective self-supervised graph representation pretraining across 4 auxiliary tasks: Atom Masking, Bond Reconstruction, 85-Motif Detection, and Context Projection.")
         
         pretrain_loss_path = "pretrain_loss_curve.png"
         if os.path.exists(pretrain_loss_path):
             st.image(pretrain_loss_path, caption="PharmaGNN Phase 2: Self-Supervised Pretraining Progression (Total Loss & 4 SSL Sub-Tasks)", use_container_width=True)
             with open(pretrain_loss_path, "rb") as f_pimg:
                 st.download_button(
-                    label="💾 Tải ảnh Pretraining Loss Curve (High-Res 300 DPI)",
+                    label="💾 Download Pretraining Loss Curve (High-Res 300 DPI)",
                     data=f_pimg.read(),
                     file_name="pretrain_loss_curve.png",
                     mime="image/png",
                     key="dl_pretrain_loss_curve"
                 )
         else:
-            st.info("Chưa tìm thấy tệp `pretrain_loss_curve.png`. Chạy `python scripts/phase2_pretrain.py` để sinh đồ thị.")
+            st.info("Pretraining loss plot `pretrain_loss_curve.png` not found. Run `python scripts/phase2_pretrain.py` to generate the curve.")
 
         # Pretraining specifications
         st.markdown("##### ⚙️ Foundation Pretraining Specifications & Results")
@@ -923,7 +923,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
             if os.path.exists(pt_csv_path):
                 with open(pt_csv_path, "r", encoding="utf-8") as f_pcsv:
                     st.download_button(
-                        label="📄 Tải chỉ số pretraining (pretrain_metrics.csv)",
+                        label="📄 Download Pretraining Metrics (CSV)",
                         data=f_pcsv.read(),
                         file_name="pretrain_metrics.csv",
                         mime="text/csv",
@@ -934,7 +934,7 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
             if os.path.exists(pt_log_path):
                 with open(pt_log_path, "r", encoding="utf-8") as f_plog:
                     st.download_button(
-                        label="📝 Tải nhật ký pretrain chi tiết (phase2_pretrain.log)",
+                        label="📝 Download Pretraining Log (Text)",
                         data=f_plog.read(),
                         file_name="phase2_pretrain.log",
                         mime="text/plain",
