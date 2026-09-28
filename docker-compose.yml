@@ -40,7 +40,7 @@ services:
     hostname: pharmagraph
     restart: always
     environment:
-      - TS_AUTHKEY=tskey-auth-kMvFmVxPpg11CNTRL-dWkCF7p8tLFLXHhgSqzsKFc5bp7aHEYf
+      - TS_AUTHKEY=tskey-auth-
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_TARGET_HOST=frontend
       - TS_TARGET_PORT=8501
@@ -59,7 +59,7 @@ services:
     hostname: pharmagraph-ts
     restart: always
     environment:
-      - TS_AUTHKEY=tskey-auth-kMvFmVxPpg11CNTRL-dWkCF7p8tLFLXHhgSqzsKFc5bp7aHEYf
+      - TS_AUTHKEY=tskey-auth-
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_TARGET_HOST=backend
       - TS_TARGET_PORT=1234
