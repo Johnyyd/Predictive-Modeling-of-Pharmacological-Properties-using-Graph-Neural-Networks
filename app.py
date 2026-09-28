@@ -8,6 +8,7 @@ from rdkit.Chem import Draw, rdMolDescriptors, AllChem, Fragments, Descriptors
 from collections import Counter
 import py3Dmol
 from stmol import showmol
+import pandas as pd
 try:
     from streamlit_ketcher import st_ketcher
 except ImportError:
@@ -317,7 +318,7 @@ st.markdown("""
 <div class="hero-container">
     <div class="hero-badge">
         <span class="hero-badge-dot"></span>
-        GNN Production Engine v2.1 • 81.5% ROC-AUC • DoS Hardened
+        GNN Foundation Engine v2.2 • 79.4% Test ROC-AUC • 97.2% NR-AR-LBD • DoS Hardened
     </div>
     <h1 class="hero-title">🧬 PharmaGraph: AI Pharmacological Analysis Platform</h1>
     <p class="hero-subtitle">
@@ -807,24 +808,75 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
         st.markdown("##### 🏆 Fine-Tuning Benchmark Performance Summary")
         b_col1, b_col2, b_col3, b_col4 = st.columns(4)
         with b_col1:
-            st.metric(label="Validation ROC-AUC", value="82.7%", help="Peak Multi-Task Mean ROC-AUC on Held-Out ClinTox & Tox21 Set")
+            st.metric(label="Mean Test ROC-AUC", value="79.42%", delta="+2.77% vs Val", help="Average Test ROC-AUC across all 13 biological & clinical endpoints (0.7942)")
         with b_col2:
-            st.metric(label="Training Accuracy", value="85.1%", help="Multi-Task Discrimination Accuracy at Convergence")
+            st.metric(label="Best Validation AUC", value="76.65%", help="Peak Multi-Task Mean ROC-AUC achieved at Epoch 29")
         with b_col3:
-            st.metric(label="Final Training Loss", value="0.509", help="Cross-Entropy Loss with positive-weight penalty (5.0)")
+            st.metric(label="Final Training Loss", value="0.566", help="Two-stage Multi-Task BCEWithLogitsLoss with positive-weight penalty (5.0)")
         with b_col4:
-            st.metric(label="Multi-Task Targets", value="13 Endpoints", help="12 In Vitro Tox21 Assays + 1 Clinical Trial Toxicity (CT_TOX)")
+            st.metric(label="Top Target (NR-AR-LBD)", value="97.17%", help="Androgen Receptor Ligand Binding Domain Test ROC-AUC (0.9717)")
 
-        hist_json_path = "training_history.json"
-        if os.path.exists(hist_json_path):
-            with open(hist_json_path, "r", encoding="utf-8") as f_json:
-                st.download_button(
-                    label="📄 Tải toàn bộ dữ liệu chỉ số huấn luyện (training_history.json)",
-                    data=f_json.read(),
-                    file_name="training_history.json",
-                    mime="application/json",
-                    key="dl_history_json"
-                )
+        # Detailed breakdown table
+        st.markdown("##### 🔬 Empirical Test Performance per Target Endpoint")
+        st.caption("Đánh giá độc lập trên tập thử nghiệm kiểm thử (Held-Out Test Set, 444 phân tử) qua 13 chỉ tiêu sinh học & lâm sàng:")
+
+        benchmark_data = [
+            {"Endpoint": "NR-AR-LBD", "Biological Target": "Androgen Receptor (Ligand Binding Domain)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.9717, "Performance Tier": "⭐⭐⭐ S-Tier (Elite)"},
+            {"Endpoint": "NR-AhR", "Biological Target": "Aryl Hydrocarbon Receptor (Dioxin / Xenobiotic)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.8606, "Performance Tier": "⭐⭐ A-Tier (State-of-the-Art)"},
+            {"Endpoint": "SR-MMP", "Biological Target": "Mitochondrial Membrane Potential Disruption", "Assay Type": "Stress Response", "Test ROC-AUC": 0.8557, "Performance Tier": "⭐⭐ A-Tier (State-of-the-Art)"},
+            {"Endpoint": "NR-ER-LBD", "Biological Target": "Estrogen Receptor (Ligand Binding Domain)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.8408, "Performance Tier": "⭐⭐ A-Tier (High Precision)"},
+            {"Endpoint": "SR-ARE", "Biological Target": "Antioxidant Response Element (Oxidative Stress)", "Assay Type": "Stress Response", "Test ROC-AUC": 0.8259, "Performance Tier": "⭐⭐ A-Tier (High Precision)"},
+            {"Endpoint": "SR-ATAD5", "Biological Target": "Genotoxicity & DNA Damage Response", "Assay Type": "Stress Response", "Test ROC-AUC": 0.8123, "Performance Tier": "⭐⭐ A-Tier (High Precision)"},
+            {"Endpoint": "NR-AR", "Biological Target": "Androgen Receptor (Full Length)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.7870, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "SR-p53", "Biological Target": "p53 Tumor Suppressor Cellular Pathway", "Assay Type": "Stress Response", "Test ROC-AUC": 0.7817, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "NR-Aromatase", "Biological Target": "Aromatase Enzyme (Estrogen Biosynthesis)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.7563, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "NR-PPAR-gamma", "Biological Target": "Peroxisome Proliferator-Activated Receptor γ", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.7535, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "SR-HSE", "Biological Target": "Heat Shock Element (Protein Stress Response)", "Assay Type": "Stress Response", "Test ROC-AUC": 0.7466, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "NR-ER", "Biological Target": "Estrogen Receptor (Full Length)", "Assay Type": "Nuclear Receptor", "Test ROC-AUC": 0.7376, "Performance Tier": "⭐ B-Tier (Robust)"},
+            {"Endpoint": "CT_TOX", "Biological Target": "Clinical Trial Human Toxicity (ClinTox)", "Assay Type": "Clinical Outcome", "Test ROC-AUC": 0.5944, "Performance Tier": "C-Tier (Baseline)"},
+        ]
+        df_bench = pd.DataFrame(benchmark_data)
+        st.dataframe(
+            df_bench,
+            column_config={
+                "Endpoint": st.column_config.TextColumn("Target Endpoint", width="medium"),
+                "Biological Target": st.column_config.TextColumn("Biological Target / Mechanism", width="large"),
+                "Assay Type": st.column_config.TextColumn("Category", width="small"),
+                "Test ROC-AUC": st.column_config.ProgressColumn(
+                    "Test ROC-AUC",
+                    format="%.4f",
+                    min_value=0.5,
+                    max_value=1.0,
+                ),
+                "Performance Tier": st.column_config.TextColumn("Evaluation Grade", width="medium"),
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            ft_csv_path = "logs/finetune_metrics.csv"
+            if os.path.exists(ft_csv_path):
+                with open(ft_csv_path, "r", encoding="utf-8") as f_csv:
+                    st.download_button(
+                        label="📄 Tải bảng chỉ số huấn luyện (finetune_metrics.csv)",
+                        data=f_csv.read(),
+                        file_name="finetune_metrics.csv",
+                        mime="text/csv",
+                        key="dl_ft_csv"
+                    )
+        with dl_col2:
+            ft_log_path = "logs/phase3_finetune.log"
+            if os.path.exists(ft_log_path):
+                with open(ft_log_path, "r", encoding="utf-8") as f_log:
+                    st.download_button(
+                        label="📝 Tải nhật ký chi tiết (phase3_finetune.log)",
+                        data=f_log.read(),
+                        file_name="phase3_finetune.log",
+                        mime="text/plain",
+                        key="dl_ft_log"
+                    )
 
     with tab_pretrain:
         st.markdown("#### 🔬 Self-Supervised Foundation Pretraining (100K+ Molecules)")
@@ -845,16 +897,49 @@ with st.expander("📈 Model Training Progression & Empirical Benchmark Metrics"
             st.info("Chưa tìm thấy tệp `pretrain_loss_curve.png`. Chạy `python scripts/phase2_pretrain.py` để sinh đồ thị.")
 
         # Pretraining specifications
-        st.markdown("##### ⚙️ Foundation Pretraining Specifications")
+        st.markdown("##### ⚙️ Foundation Pretraining Specifications & Results")
         p_col1, p_col2, p_col3, p_col4 = st.columns(4)
         with p_col1:
-            st.metric(label="Pretraining Scale", value="100,000+", help="ChEMBL / PubChem diverse pharmacological molecular graphs")
+            st.metric(label="Pretraining Scale", value="100,000", help="CompTox 3.0 representative pharmacological molecular graphs")
         with p_col2:
-            st.metric(label="SSL Objectives", value="4 Sub-Tasks", help="Atom Masking, Bond Type, 85-Motif Detection, Context Projection")
+            st.metric(label="Best Validation Loss", value="0.0550", help="Converged from 2.8145 down to 0.0550 (Epoch 15)")
         with p_col3:
-            st.metric(label="Backbone Architecture", value="GATv2 (128d)", help="4-layer GATv2, 4 attention heads with residual skip connections")
+            st.metric(label="CPU Throughput", value="105 g/s", help="High-Performance CPU Vectorized Masking (3.3 batches/s, ~14.2m/epoch)")
         with p_col4:
-            st.metric(label="Learning Scheduler", value="Cosine Decay", help="AdamW with Cosine Annealing learning rate schedule")
+            st.metric(label="Backbone Architecture", value="GATv2 (128d)", help="4-layer GATv2, 4 attention heads with residual skip connections (721,885 params)")
+
+        st.markdown("##### 🧩 Self-Supervised Sub-Loss Breakdown at Convergence")
+        ssl_loss_data = [
+            {"Sub-Task": "Atom Feature Masking", "Objective": "BCE predicting masked atomic numbers & valence states", "Loss Weight": "1.00", "Final Loss": "0.0572"},
+            {"Sub-Task": "85-Motif Detection", "Objective": "Multi-label BCE identifying chemical functional groups", "Loss Weight": "0.20", "Final Loss": "0.0422"},
+            {"Sub-Task": "Bond Type Reconstruction", "Objective": "Cross-Entropy classifying covalent bond orders", "Loss Weight": "0.50", "Final Loss": "0.0002"},
+            {"Sub-Task": "Context Representation", "Objective": "Contrastive InfoNCE graph context projection", "Loss Weight": "0.10", "Final Loss": "0.0000"}
+        ]
+        st.dataframe(pd.DataFrame(ssl_loss_data), hide_index=True, use_container_width=True)
+
+        pdl_col1, pdl_col2 = st.columns(2)
+        with pdl_col1:
+            pt_csv_path = "logs/pretrain_metrics.csv"
+            if os.path.exists(pt_csv_path):
+                with open(pt_csv_path, "r", encoding="utf-8") as f_pcsv:
+                    st.download_button(
+                        label="📄 Tải chỉ số pretraining (pretrain_metrics.csv)",
+                        data=f_pcsv.read(),
+                        file_name="pretrain_metrics.csv",
+                        mime="text/csv",
+                        key="dl_pt_csv"
+                    )
+        with pdl_col2:
+            pt_log_path = "logs/phase2_pretrain.log"
+            if os.path.exists(pt_log_path):
+                with open(pt_log_path, "r", encoding="utf-8") as f_plog:
+                    st.download_button(
+                        label="📝 Tải nhật ký pretrain chi tiết (phase2_pretrain.log)",
+                        data=f_plog.read(),
+                        file_name="phase2_pretrain.log",
+                        mime="text/plain",
+                        key="dl_pt_log"
+                    )
 
 
 
