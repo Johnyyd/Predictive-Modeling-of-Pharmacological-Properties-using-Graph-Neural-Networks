@@ -9,6 +9,7 @@
 
 **PharmaGraph** is an end-to-end deep learning platform designed for computational chemistry, toxicology, and drug discovery. It predicts compound pharmacological properties and biological toxicity risks using **Graph Attention Networks (GATv2)** enhanced with **Functional Group Cross-Attention**, **Knowledge-Based Toxicophore Alert Densities**, and **Concentration/Dosage Awareness**.
 
+**Link Demo:** https://pharmagraph.taild6d848.ts.net/
 ---
 
 ## 📑 Table of Contents
